@@ -1,0 +1,20 @@
+paths:
+  raw_pdfs: data/raw_pdfs/
+  issues_json: data/json/
+  chunks: data/chunks/
+  embeddings: data/embeddings/
+  index: data/index/
+
+chunking:
+  page_break_token: "<<<PAGE_BREAK>>>"
+  size_words: 900
+  overlap_words: 120
+  min_words: 50
+
+embeddings:
+  model_name: "all-MiniLM-L6-v2"
+  normalize: true
+
+index:
+  backend: "faiss"
+  dim: 384
