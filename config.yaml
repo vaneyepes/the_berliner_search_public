@@ -6,10 +6,10 @@ paths:
   index: data/index/
 
 chunking:
-  page_break_token: "<<<PAGE_BREAK>>>"
-  size_words: 900
-  overlap_words: 120
-  min_words: 50
+  page_break_token: "<PAGE_BREAK>" # ← must match token used in Phase 1 JSONs
+  size_words: 900 # target ~900 words per chunk
+  overlap_words: 120 # overlap between consecutive chunks
+  min_words: 50 # minimum chunk size (only for merging tails)
 
 embeddings:
   model_name: "all-MiniLM-L6-v2"
