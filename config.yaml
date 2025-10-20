@@ -18,3 +18,12 @@ embeddings:
 index:
   backend: "faiss"
   dim: 384
+
+summarization:
+  model_name: "t5-small" # or "facebook/bart-base"
+  max_input_tokens: 512 # truncate input tokens
+  max_new_tokens: 120 # ~2–4 sentences
+  num_beams: 4 # quality vs speed
+  batch_size: 4 # keep small on CPU
+  output_dir: "data/summaries"
+  device: "auto" # "auto" | "cpu" | "cuda"

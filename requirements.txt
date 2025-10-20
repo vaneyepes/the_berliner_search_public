@@ -1,5 +1,5 @@
 pymupdf==1.23.26
-numpy==2.1.2
+numpy>=1.26.4,<2.0
 scikit-learn==1.5.2
 chardet==5.2.0
 pdfminer.six==20240706
@@ -7,4 +7,7 @@ click>=8.1
 pyyaml>=6.0
 tqdm>=4.66
 types-PyYAML>=6.0.12.20240808
+transformers>=4.44
+torch>=2.2.2
+tqdm>=4.66
 
