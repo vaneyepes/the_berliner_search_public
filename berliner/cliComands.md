@@ -20,3 +20,19 @@ python -m berliner.cli chunk "data/json/" -o data/chunks/
 # For Chunking: Run from terminal
 
 python -m berliner.cli chunk data/json/ -o data/chunks/
+
+# For Summarization:
+
+python -m berliner.cli summarize data/chunks/
+
+# Generate MD files: from summaries
+
+python - <<'PY'
+from pathlib import Path
+from berliner.summarizer.export_md import write_issue_md
+summ_dir = Path("data/summaries")
+out_dir = Path("data/summaries_issue")
+for f in sorted(summ_dir.glob("\*.jsonl")):
+p = write_issue_md(f, out_dir)
+print("Wrote", p)
+PY

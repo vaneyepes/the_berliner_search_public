@@ -19,6 +19,9 @@ index:
   backend: "faiss"
   dim: 384
 
+paths:
+  chunks: "data/chunks"
+
 summarization:
   model_name: "t5-small" # or "facebook/bart-base"
   max_input_tokens: 512 # truncate input tokens
