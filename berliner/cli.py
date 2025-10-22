@@ -1,19 +1,39 @@
 # berliner/cli.py
-from __future__ import annotations 
+# ============================
+# The Berliner Search — Unified CLI
+# Stages covered:
+#   Phase 1–2: Extraction (PDF → JSON issues)
+#   Phase 3:   Chunking (issue JSON → chunked JSONL)
+#   Phase 4:   Summarization (chunks → summaries JSONL)
+#   Phase 5:   Metadata Tagging (chunks + summaries → enriched metadata.jsonl)
+# ============================
+
+from __future__ import annotations
 
 import sys
-import hashlib
 from pathlib import Path
 import click
 
-# Import functions from berliner modules
+# ---- Common config loader ----
+# Loads config.yaml (project-wide paths & params)
 from berliner.utils.config import load_config
+
+# ---- Phase 1–2: Extraction imports ----
+# PDF -> structured issue JSON
 from berliner.extractor.parse import extract_issue, save_json
 
-# from berliner.chunker.make_chunks import chunk_issue_file, chunk_dir
+# ---- Phase 4: Summarization import ----
+# Chunks -> summaries JSONL
 from berliner.summarizer.summarize import summarize_issue
 
-# ---- CLI root ----
+# ---- Phase 5: Metadata Tagging import ----
+# Chunks + summaries -> enriched metadata.jsonl (+ schema, stats, manifest)
+from berliner.metadata.tagger import build_metadata
+
+
+# -----------------------------------------------------------------------------
+# CLI root
+# -----------------------------------------------------------------------------
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
     "--config",
@@ -24,11 +44,18 @@ from berliner.summarizer.summarize import summarize_issue
 )
 @click.pass_context
 def cli(ctx: click.Context, config_path: str | None):
-    """The Berliner CLI — extraction, chunking, and (soon) embeddings & search."""
+    """
+    The Berliner CLI — extraction, chunking, summarization, and metadata tagging.
+    """
     cfg = load_config(config_path)
     ctx.obj = {"cfg": cfg}
 
-# ---- extract command ----
+
+# -----------------------------------------------------------------------------
+# Phase 1–2: extract
+# PDF(s) → issue JSON files in data/json/
+# Why: normalize raw PDFs into machine-readable issues for later stages.
+# -----------------------------------------------------------------------------
 @cli.command("extract")
 @click.argument("input_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -45,7 +72,6 @@ def cli(ctx: click.Context, config_path: str | None):
 )
 @click.pass_context
 def extract_cmd(ctx: click.Context, input_path: Path, out_dir: Path | None, hash_stem: bool):
-    """Extract one PDF or a folder of PDFs into JSON issue files."""
     cfg = ctx.obj["cfg"]
     out_dir = out_dir or Path(cfg["paths"]["issues_json"])
 
@@ -65,12 +91,17 @@ def extract_cmd(ctx: click.Context, input_path: Path, out_dir: Path | None, hash
         stem = pdf.stem
         if hash_stem:
             import hashlib
-            h = hashlib.sha1(pdf.name.encode()).hexdigest()[:8]
+            h = hashlib.sha1(pdf.name.encode().decode() if isinstance(pdf.name, bytes) else pdf.name.encode()).hexdigest()[:8]
             stem = f"{stem}.{h}"
         out_path = save_json(data, str(out_dir), stem=stem)
         click.echo(f"[extract] Saved {out_path}")
 
-# ---- chunk command (Phase 3) ----
+
+# -----------------------------------------------------------------------------
+# Phase 3: chunk
+# Issue JSON → chunked JSONL in data/chunks/
+# Why: split long articles into ~N-word windows for downstream NLP.
+# -----------------------------------------------------------------------------
 @cli.command("chunk")
 @click.argument("input_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -97,20 +128,18 @@ def chunk_cmd(
     size_words: int | None,
     overlap_words: int | None,
 ):
-    """Chunk a single issue JSON file or all JSON files in a folder."""
     cfg = ctx.obj["cfg"]
     out_dir = out_dir or Path(cfg["paths"]["chunks"])
     size_words = size_words or int(cfg["chunking"]["size_words"])
     overlap_words = overlap_words or int(cfg["chunking"]["overlap_words"])
 
-    # Import the concrete implementations
+    # Import inside to avoid hard dependency when user only runs other stages
     try:
         from berliner.chunker.make_chunks import chunk_issue_file, chunk_dir
     except Exception as e:
         click.echo(f"[chunk] Import error: {e}", err=True)
         sys.exit(1)
 
-    # discover inputs
     if input_path.is_dir():
         files = sorted(p for p in input_path.glob("*.json"))
         if not files:
@@ -131,7 +160,12 @@ def chunk_cmd(
         )
         click.echo(f"[chunk] Wrote {p}")
 
-# ---- summarize command (Phase 4) ----
+
+# -----------------------------------------------------------------------------
+# Phase 4: summarize
+# Chunked JSONL → summaries JSONL in data/summaries/
+# Why: produce concise, model-generated summaries for each chunk.
+# -----------------------------------------------------------------------------
 @cli.command("summarize")
 @click.argument("input_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -162,26 +196,14 @@ def summarize_cmd(
     limit: int,
     force: bool,
 ):
-    """
-    Summarize a single chunk JSONL file or all JSONL files in a folder.
-
-    INPUT:
-      - input_path: either a directory containing *.jsonl chunks, or one .jsonl file.
-
-    OUTPUT:
-      - One JSONL per input file in the summaries directory, with records:
-        {chunk_id, summary, model, gen:{...}} and a final _meta line.
-    """
     cfg = ctx.obj["cfg"]
 
-    # Pull summarization defaults from config.yaml
     try:
         s = cfg["summarization"]
     except KeyError:
         click.echo("[summarize] Missing 'summarization' section in config.yaml", err=True)
         sys.exit(1)
 
-    # Resolve paths and params (overrides > config)
     chunks_dir_default = Path(cfg["paths"]["chunks"]) if "paths" in cfg and "chunks" in cfg["paths"] else None
     out_dir = out_dir or Path(s.get("output_dir", "data/summaries"))
     model = model_name or s.get("model_name", "t5-small")
@@ -190,12 +212,10 @@ def summarize_cmd(
     num_beams       = int(num_beams       or s.get("num_beams", 4))
     batch_size      = int(batch_size      or s.get("batch_size", 4))
     device          = device or s.get("device", "auto")
-    skip_if_exists  = not force  # invert the --force flag
+    skip_if_exists  = not force
 
-    # Discover inputs: directory of *.jsonl vs single file
     if input_path.is_dir():
         files = sorted(p for p in input_path.glob("*.jsonl"))
-        # If a directory was passed but empty, try falling back to configured chunks dir
         if not files and chunks_dir_default and input_path == chunks_dir_default:
             click.echo(f"[summarize] No .jsonl files in {input_path}", err=True)
             sys.exit(1)
@@ -216,7 +236,6 @@ def summarize_cmd(
         f"→ out={out_dir}"
     )
 
-    # Run per file
     n_written = 0
     for f in files:
         try:
@@ -229,7 +248,7 @@ def summarize_cmd(
                 num_beams=num_beams,
                 batch_size=batch_size,
                 device=device,
-                skip_if_exists=skip_if_exists,  # supported by our summarize.py
+                skip_if_exists=skip_if_exists,
             )
             if out is None:
                 click.echo(f"[summarize] Skipped (exists) {f.stem}")
@@ -242,11 +261,33 @@ def summarize_cmd(
     click.echo(f"[summarize] Done. New/updated files: {n_written}")
 
 
-# ---- entrypoint ----
+# -----------------------------------------------------------------------------
+# Phase 5: metadata
+# Chunks + summaries → data/enriched/{metadata.jsonl, meta_schema.json, stats.json, _manifest.csv}
+# Why: unify/normalize fields for embeddings & search (Phase 6).
+# -----------------------------------------------------------------------------
+@cli.command("metadata")
+@click.option("--config", default="config.yaml", show_default=True, help="Path to config.yaml")
+@click.pass_context
+def metadata_cmd(ctx: click.Context, config: str):
+    cfg = ctx.obj["cfg"]  # loaded by CLI root
+    # If user passed a different --config here, reload with that path:
+    if config and config != ctx.parent.params.get("config_path"):
+        cfg = load_config(config)
+
+    counts = build_metadata(cfg)
+    click.echo(
+        f"[metadata] wrote {counts['written']} rows in {counts['seconds_total']}s "
+        f"(issues={counts.get('issues', 0)}, chunks={counts.get('chunks', 0)}, "
+        f"missing_summary={counts.get('missing_summary', 0)})"
+    )
+
+
+# -----------------------------------------------------------------------------
+# Entrypoint
+# -----------------------------------------------------------------------------
 def main():
     cli(prog_name="berliner")
 
 if __name__ == "__main__":
     main()
-
-

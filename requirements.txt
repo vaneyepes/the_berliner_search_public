@@ -10,4 +10,4 @@ types-PyYAML>=6.0.12.20240808
 transformers>=4.44
 torch>=2.2.2
 tqdm>=4.66
-
+pandas>=2.0

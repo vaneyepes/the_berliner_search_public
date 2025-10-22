@@ -36,3 +36,5 @@ for f in sorted(summ_dir.glob("\*.jsonl")):
 p = write_issue_md(f, out_dir)
 print("Wrote", p)
 PY
+
+# Metadata Tagging structure (Create Meta schema)

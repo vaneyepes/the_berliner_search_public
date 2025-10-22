@@ -30,3 +30,17 @@ summarization:
   batch_size: 4 # keep small on CPU
   output_dir: "data/summaries"
   device: "auto" # "auto" | "cpu" | "cuda"
+
+
+metadata:
+  issue_id_regex: "(\\d{4})[\\-_](\\d{2})"
+  default_lang: "en"
+  parser_version: "1.0.0"
+  summarizer_defaults:
+    model: "t5-small"
+    num_beams: 4
+  paths:
+    pdf_dir: "data/raw_pdfs"
+    chunks_dir: "data/chunks"
+    summaries_dir: "data/summaries"
+    enriched_dir: "data/enriched"
