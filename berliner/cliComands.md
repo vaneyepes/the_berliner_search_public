@@ -38,3 +38,27 @@ print("Wrote", p)
 PY
 
 # Metadata Tagging structure (Create Meta schema)
+
+python -m berliner.cli metadata
+
+# Semantic search embeddings and index
+
+# Rebuild with E5-base (instruction-tuned)
+
+python -m berliner.cli search index --index-type flat --model-name "intfloat/e5-base-v2" --batch-size 64
+
+# Query with hybrid on and (optionally) rerank
+
+python -m berliner.cli search query "Brandenburg airport delays" -k 10 --faiss-top 100 --rerank
+
+# Semanting search emb and index FOR SERVER version
+
+Server setting (better quality):
+
+# Option 1 (very strong): MPNet
+
+python -m berliner.cli search index --index-type flat --model-name "sentence-transformers/all-mpnet-base-v2"
+
+# Option 2 (instruction-tuned, stronger than base): E5-large (slower)
+
+python -m berliner.cli search index --index-type flat --model-name "intfloat/e5-large-v2"

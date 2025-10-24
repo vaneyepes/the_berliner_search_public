@@ -44,3 +44,15 @@ metadata:
     chunks_dir: "data/chunks"
     summaries_dir: "data/summaries"
     enriched_dir: "data/enriched"
+
+
+search:
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  text_field_priority: [summary_text, chunk_text]
+  normalize: true        # cosine via inner product
+  index_type: flat       # flat | hnsw
+  hnsw_m: 32
+  hnsw_ef_construction: 200
+  batch_size: 64
+  max_length: 512        # truncate very long texts
+  k: 10                  # default top-k

@@ -1,4 +1,3 @@
-# berliner/cli.py
 # ============================
 # The Berliner Search — Unified CLI
 # Stages covered:
@@ -6,6 +5,7 @@
 #   Phase 3:   Chunking (issue JSON → chunked JSONL)
 #   Phase 4:   Summarization (chunks → summaries JSONL)
 #   Phase 5:   Metadata Tagging (chunks + summaries → enriched metadata.jsonl)
+#   Phase 6:   Semantic Search (embeddings + FAISS, hybrid BM25, optional rerank)
 # ============================
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 import click
+import re
 
 # ---- Common config loader ----
 # Loads config.yaml (project-wide paths & params)
@@ -45,7 +46,7 @@ from berliner.metadata.tagger import build_metadata
 @click.pass_context
 def cli(ctx: click.Context, config_path: str | None):
     """
-    The Berliner CLI — extraction, chunking, summarization, and metadata tagging.
+    The Berliner CLI — extraction, chunking, summarization, metadata tagging, and search.
     """
     cfg = load_config(config_path)
     ctx.obj = {"cfg": cfg}
@@ -281,6 +282,171 @@ def metadata_cmd(ctx: click.Context, config: str):
         f"(issues={counts.get('issues', 0)}, chunks={counts.get('chunks', 0)}, "
         f"missing_summary={counts.get('missing_summary', 0)})"
     )
+
+
+# -----------------------------------------------------------------------------
+# Phase 6: search
+# Embeddings + FAISS index (and querying) in data/index/
+# Why: enable semantic retrieval using Sentence-Transformers + FAISS.
+# -----------------------------------------------------------------------------
+@cli.group("search")
+@click.pass_context
+def search_group(ctx: click.Context):
+    """Semantic search utilities (Phase 6)."""
+    # No-op: group holder; reads config via parent ctx when needed.
+    pass
+
+
+@search_group.command("index")
+@click.option("--index-type",
+              type=click.Choice(["flat", "hnsw"]),
+              default="flat",
+              show_default=True,
+              help="FAISS index type: exact (flat) or ANN graph (hnsw).")
+@click.option("--batch-size", type=int, default=None, show_default=False,
+              help="Embedding batch size (overrides search.batch_size in config).")
+@click.option("--no-normalize", is_flag=True, help="Disable L2 normalization (not recommended).")
+@click.option("--model-name", default=None, show_default=False,
+              help="Override embedding model (defaults to search.model_name or MiniLM).")
+@click.option("--max-length", type=int, default=None, show_default=False,
+              help="Override search.max_length (tokens).")
+@click.pass_context
+def search_index_cmd(
+    ctx: click.Context,
+    index_type: str,
+    batch_size: int | None,
+    no_normalize: bool,
+    model_name: str | None,
+    max_length: int | None,
+):
+    """
+    Build embeddings and a FAISS index.
+
+    Outputs:
+      - data/index/embeddings.npy
+      - data/index/ids.jsonl
+      - data/index/faiss.index
+      - data/index/stats.json (augmented with FAISS info)
+    """
+    cfg = ctx.obj["cfg"]
+    cfg_search = cfg.get("search", {}) if isinstance(cfg, dict) else {}
+
+    # Resolve runtime parameters with config fallbacks
+    model_name = model_name or cfg_search.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
+    batch_size = int(batch_size or cfg_search.get("batch_size", 64))
+    normalize = not no_normalize if "normalize" not in cfg_search else bool(cfg_search.get("normalize", True) and not no_normalize)
+    max_length = int(max_length or cfg_search.get("max_length", 512))
+
+    # Import inside command to keep optional dependency surface small
+    try:
+        from berliner.search.embedder import run as build_embeddings
+        from berliner.search.indexer import build_index
+    except Exception as e:
+        click.echo(f"[search] Import error: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(
+        f"[search] embeddings → model={model_name} batch={batch_size} "
+        f"normalize={normalize} max_length={max_length}"
+    )
+    try:
+        stats = build_embeddings(
+            model_name=model_name,
+            normalize=normalize,
+            batch_size=batch_size,
+            max_length=max_length,
+        )
+        click.echo(f"[search] embeddings: dim={stats.get('dim')} n={stats.get('n_vectors')} time={stats.get('elapsed_sec')}s")
+    except Exception as e:
+        click.echo(f"[search] ERROR building embeddings: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(f"[search] building FAISS index: index_type={index_type}")
+    try:
+        info = build_index(index_type=index_type)
+        click.echo(f"[search] index: type={info.get('index_type')} n={info.get('n_vectors')} dim={info.get('dim')} time={info.get('elapsed_sec')}s")
+    except Exception as e:
+        click.echo(f"[search] ERROR building FAISS index: {e}", err=True)
+        sys.exit(1)
+
+
+@search_group.command("query")
+@click.argument("text", type=str)
+@click.option("-k", "--topk", type=int, default=None, show_default=False,
+              help="Top-K results to display (defaults to search.k in config or 10).")
+@click.option("--show-meta", is_flag=True, help="Print the raw metadata mapping for each hit.")
+@click.option("--no-hybrid", is_flag=True, help="Disable BM25+dense fusion; use dense-only FAISS retrieval.")
+@click.option("--faiss-top", type=int, default=80, show_default=True,
+              help="FAISS candidate pool size before fusion/rerank (ignored if --no-hybrid).")
+@click.option("--rerank", is_flag=True,
+              help="Apply cross-encoder reranking (ms-marco-MiniLM-L-6-v2) after fusion for higher precision.")
+@click.pass_context
+def search_query_cmd(ctx, text, topk, show_meta, no_hybrid, faiss_top, rerank):
+    """
+    Run a semantic query against the FAISS index.
+
+    Prints: rank, score, issue_id, chunk_id, page_span, (optional) title.
+    """
+    cfg = ctx.obj["cfg"]
+    cfg_search = cfg.get("search", {}) if isinstance(cfg, dict) else {}
+    k = int(topk or cfg_search.get("k", 10))
+
+    try:
+        from berliner.search.indexer import query as faiss_query
+    except Exception as e:
+        click.echo(f"[search] Import error: {e}", err=True)
+        sys.exit(1)
+
+    # 1) Dense (or Hybrid) retrieval
+    try:
+        results = faiss_query(
+            text,
+            k=k if no_hybrid else max(k, faiss_top),
+            hybrid=not no_hybrid,
+            faiss_top=faiss_top,
+        )
+    except AssertionError as e:
+        click.echo(f"[search] AssertionError: {e}", err=True)
+        click.echo("[search] Tip: build the index first:  python -m berliner.cli search index", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"[search] ERROR running query: {e}", err=True)
+        sys.exit(1)
+
+    # 2) Optional reranking (cross-encoder) — use summary + chunk head for better precision
+    if rerank and results:
+        try:
+            from sentence_transformers import CrossEncoder
+
+            def _chunk_head_local(s: str, n_words: int = 120) -> str:
+                return " ".join((s or "").strip().split()[:n_words])
+
+            ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            pairs = []
+            for _, r in results:
+                # Prefer summary + chunk head; fallback to preview/title if empty
+                txt = (r.get("summary_text") or "") + "\n\n" + _chunk_head_local(r.get("chunk_text") or "", 120)
+                if not txt.strip():
+                    txt = r.get("preview") or r.get("title") or ""
+                pairs.append((text, txt))
+
+            ce_scores = ce.predict(pairs).tolist()
+            results = sorted(zip(ce_scores, [r for _, r in results]), key=lambda x: x[0], reverse=True)[:k]
+        except Exception as e:
+            click.echo(f"[search] Rerank error: {e}", err=True)
+
+    if not results:
+        click.echo("[search] No results.")
+        return
+
+    # 3) Print
+    for rank, (score, rec) in enumerate(results, start=1):
+        issue = rec.get("issue_id"); chunk = rec.get("chunk_id")
+        pages = rec.get("page_span"); title = rec.get("title") or ""
+        click.echo(f"{rank:02d}  score={score:.4f}  issue={issue}  chunk={chunk}  pages={pages}  {title}")
+        if show_meta:
+            import json as _json
+            click.echo("     " + _json.dumps(rec, ensure_ascii=False))
 
 
 # -----------------------------------------------------------------------------

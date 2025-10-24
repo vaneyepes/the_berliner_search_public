@@ -1,3 +1,4 @@
+import re
 # berliner/chunker/make_chunks.py
 from __future__ import annotations
 import json, re
