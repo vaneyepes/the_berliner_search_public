@@ -3,3 +3,36 @@ __pycache__/
 *.pyc
 data/
 .env
+
+# --- OS & Editor ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Model & index artifacts ---
+*.faiss
+*.npy
+*.npz
+*.pkl
+*.pt
+*.bin
+faiss.index
+
+# --- Logs & outputs ---
+*.log
+logs/
+runs/
+outputs/
+
+# --- Cached or temporary data ---
+tmp/
+*.tmp
+*.bak
+
+# --- Evaluation or testing ---
+eval/
+notebooks/
+
+# --- Configs ---
+config.yaml
+!config_template.yaml  # keep a safe example
