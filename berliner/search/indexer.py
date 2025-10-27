@@ -169,7 +169,8 @@ def _rrf_merge(faiss_hits, bm25_hits, k=10, rrf_k=60):
     return fused[:k]
 
 # ------------------------------------------------------------------------------------
-# Query (with hybrid BM25, RRF fusion, and domain MUST filtering)
+# # ------------------------------------------------------------------------------------
+# Query (dense or hybrid) + RRF + domain MUST + ad filter
 # ------------------------------------------------------------------------------------
 def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> List[Tuple[float, Dict[str, Any]]]:
     """
@@ -183,14 +184,16 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
     Precision:
       - BM25 runs over title + summary + first 120 words of chunk.
       - Domain MUST filters for airport/gentrification queries to suppress generic "Berlin" hits.
+      - Stricter rules (airport+delay, housing+location).
+      - Ad/listing filter (urls/phones/instagram/Anzeige/calendar).
     """
-    # --- tiny local helpers (avoid extra imports/changes elsewhere) ---
     import unicodedata, re
+
+    # ---- tiny local helpers (no external edits needed) ----
     def _chunk_head_local(s: str, n_words: int = 120) -> str:
         return " ".join((s or "").strip().split()[:n_words])
 
     def _fold(s: str) -> str:
-        # lowercase + remove accents/diacritics
         return "".join(
             c for c in unicodedata.normalize("NFKD", (s or "").lower())
             if not unicodedata.combining(c)
@@ -202,10 +205,27 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
         t = _fold(text_)
         return any(tok in t for tok in terms)
 
+    def _is_ad_like(rec: Dict[str, Any]) -> bool:
+        """Heuristic: drop obvious ads/listings/calendars."""
+        window = " ".join([
+            rec.get("title") or "",
+            rec.get("summary_text") or "",
+            _chunk_head_local(rec.get("chunk_text") or "", 60),
+        ])
+        w = _fold(window)
+        ad_signals = [
+            "http://", "https://", "www.", "instagram", "facebook.com",
+            "tickets:", "book now", "hotline", "@", "tel.", "telefon", "phone",
+            "anzeige", "advertorial", "calendar", "jahreskalender", "anzeige:"
+        ]
+        has_phone = bool(re.search(r"\b(\+?\d[\d\-\s]{6,})\b", window))
+        return has_phone or any(sig in w for sig in ad_signals)
+
+    # ---- paths/index sanity ----
     if not FAISS_PATH.exists():
         raise FileNotFoundError(f"FAISS index not found at {FAISS_PATH}. Run: berliner search index")
 
-    # Load index + ID map
+    # ---- load FAISS and ids ----
     try:
         index = faiss.read_index(str(FAISS_PATH))
     except Exception as e:
@@ -215,7 +235,7 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
     if not id_map:
         raise RuntimeError("ids.jsonl is empty. Rebuild the index.")
 
-    # ----- Dense branch (FAISS) -----
+    # ---- dense encoding (E5/GTE/BGE prefixing supported) ----
     model = _load_model()
     index_dim = _get_index_dim(index)
     model_dim = _get_model_dim(model)
@@ -227,7 +247,6 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
             f"with the same model you're using now, or query using that model."
         )
 
-    # Prefix for instruction-tuned models (E5/GTE/BGE)
     resolved_name = _resolve_model_name(MODEL_NAME)
     q_prefix = _prefix_for_query(resolved_name)
     qtxt = q_prefix + text
@@ -240,6 +259,7 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
     if NORMALIZE_QUERY:
         q = _l2_normalize(q)
 
+    # ---- dense search ----
     pool = faiss_top if hybrid else k
     try:
         d_scores, d_idxs = index.search(q.astype("float32"), pool)
@@ -256,44 +276,62 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
         rec = dict(id_map[i]); rec["_row"] = i
         faiss_hits.append((float(s), rec))
 
+    # ---- dense-only early return (with domain/ad filter) ----
     if not hybrid:
         out_dense = [(float(s), dict(id_map[r["_row"]])) for s, r in faiss_hits[:k]]
-        # --- domain MUST filtering even in dense-only mode ---
-        qfold = _fold(text)
-        need_airport = any(t in qfold for t in ["airport", "brandenburg"])
-        need_gentr   = ("gentrif" in qfold) or ("neukolln" in qfold) or ("neukölln" in text.lower())
-        if not (need_airport or need_gentr):
-            return out_dense
 
-        airport_terms = ["airport", "ber", "brandenburg", "willy brandt", "flughafen", "bbi"]
-        gentr_terms   = ["gentrif", "rent", "landlord", "eviction", "miet", "kaltmiete", "warmmiete", "umwandlung"]
+        # Domain MUST + ad filter even in dense-only
+        qfold = _fold(text)
+        need_airport = any(t in qfold for t in ["airport", "ber", "brandenburg", "flughafen"])
+        need_delay   = any(t in qfold for t in ["delay", "delays", "delayed", "cancel"])
+        need_gentr   = ("gentrif" in qfold) or ("miete" in qfold) or ("rent" in qfold) or ("landlord" in qfold) or ("eviction" in qfold)
+        need_loc     = any(t in qfold for t in ["neukolln", "neukölln", "kreuzberg", "friedrichshain", "moabit", "prenzl"])
+
+        airport_terms = [
+            "airport", "ber", "willy brandt", "flughafen", "brandenburg", "bbi",
+            "schönefeld", "schoenefeld", "sxf", "tegel", "txl", "terminal", "runway",
+            "check-in", "security", "boarding", "flight", "flights", "lufthansa",
+            "eurowings", "easyjet", "schengen", "non-schengen"
+        ]
+        delay_terms = ["delay", "delays", "delayed", "cancel", "cancellation", "cancelled", "queue", "queues", "waiting time"]
+
+        housing_terms = [
+            "gentrif", "rent", "landlord", "eviction", "tenant", "mieter", "vermieter",
+            "miet", "kaltmiete", "warmmiete", "umwandlung", "mietspiegel", "zweckentfremdung",
+            "bau", "bauvorhaben", "sanierung", "modernisierung", "entmietung"
+        ]
+        location_terms = ["neukolln", "neukölln", "kreuzberg", "friedrichshain", "moabit", "prenzlauer berg", "kiez"]
 
         filtered = []
         for score, rec in out_dense:
+            if _is_ad_like(rec):
+                continue
             window = " ".join([
                 rec.get("title") or "",
                 rec.get("summary_text") or "",
-                _chunk_head_local(rec.get("chunk_text") or "", 120),
+                _chunk_head_local(rec.get("chunk_text") or "", 150),
             ])
             keep = True
-            if need_airport:
+            if need_airport and need_delay:
+                keep = _contains_any(window, airport_terms) and _contains_any(window, delay_terms)
+            elif need_airport:
                 keep = _contains_any(window, airport_terms)
             if keep and need_gentr:
-                keep = _contains_any(window, gentr_terms) or _contains_any(window, ["neukolln", "neukölln"])
+                keep = _contains_any(window, housing_terms)
+                if keep and need_loc:
+                    keep = _contains_any(window, location_terms) or keep
             if keep:
                 filtered.append((score, rec))
-        return filtered if filtered else out_dense
+        return filtered[:k] if filtered else out_dense[:k]
 
-    # ----- Keyword branch (BM25) with domain-aware expansion -----
-    # Safe import in case bm25/expand weren’t added yet
+    # ---- BM25 branch (safe import; fallback to dense-only if missing) ----
     try:
         from .bm25 import BM25Index
         from .expand import expand_for_bm25
     except Exception:
-        # If hybrid code isn’t available, gracefully fall back to dense-only
         return [(float(s), dict(id_map[r["_row"]])) for s, r in faiss_hits[:k]]
 
-    # Richer text for BM25: title + summary + head of chunk
+    # Build richer BM25 corpus: title + summary + head of chunk
     bm25_corpus = []
     for r in id_map:
         title = r.get("title") or ""
@@ -310,7 +348,7 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
         rec = dict(id_map[i]); rec["_row"] = i
         bm25_hits.append((float(s), rec))
 
-    # ----- Fuse with RRF -----
+    # ---- Fuse with RRF ----
     fused = _rrf_merge(faiss_hits, bm25_hits, k=k, rrf_k=60)
 
     out: List[Tuple[float, Dict[str, Any]]] = []
@@ -318,32 +356,55 @@ def query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80) -> L
         rec = dict(id_map[row])
         out.append((float(score), rec))
 
-    # ----- Domain MUST filters (post-fusion) -----
+    # ---- Domain MUST + ad filter (post-fusion) ----
     qfold = _fold(text)
-    need_airport = any(t in qfold for t in ["airport", "brandenburg"])
-    need_gentr   = ("gentrif" in qfold) or ("neukolln" in qfold) or ("neukölln" in text.lower())
 
-    if not (need_airport or need_gentr):
-        return out
+    airport_terms = [
+        "airport", "ber", "willy brandt", "flughafen", "brandenburg", "bbi",
+        "schönefeld", "schoenefeld", "sxf", "tegel", "txl", "terminal", "runway",
+        "check-in", "security", "boarding", "flight", "flights", "lufthansa",
+        "eurowings", "easyjet", "schengen", "non-schengen"
+    ]
+    delay_terms = ["delay", "delays", "delayed", "cancel", "cancellation", "cancelled", "queue", "queues", "waiting time"]
 
-    airport_terms = ["airport", "ber", "brandenburg", "willy brandt", "flughafen", "bbi"]
-    gentr_terms   = ["gentrif", "rent", "landlord", "eviction", "miet", "kaltmiete", "warmmiete", "umwandlung"]
+    housing_terms = [
+        "gentrif", "rent", "landlord", "eviction", "tenant", "mieter", "vermieter",
+        "miet", "kaltmiete", "warmmiete", "umwandlung", "mietspiegel", "zweckentfremdung",
+        "bau", "bauvorhaben", "sanierung", "modernisierung", "entmietung"
+    ]
+    location_terms = ["neukolln", "neukölln", "kreuzberg", "friedrichshain", "moabit", "prenzlauer berg", "kiez"]
+
+    need_airport = any(t in qfold for t in ["airport", "ber", "brandenburg", "flughafen"])
+    need_delay   = any(t in qfold for t in ["delay", "delays", "delayed", "cancel"])
+    need_gentr   = ("gentrif" in qfold) or ("miete" in qfold) or ("rent" in qfold) or ("landlord" in qfold) or ("eviction" in qfold)
+    need_loc     = any(t in qfold for t in ["neukolln", "neukölln", "kreuzberg", "friedrichshain", "moabit", "prenzl"])
 
     filtered = []
     for score, rec in out:
+        if _is_ad_like(rec):
+            continue
+
         window = " ".join([
             rec.get("title") or "",
             rec.get("summary_text") or "",
-            _chunk_head_local(rec.get("chunk_text") or "", 120),
+            _chunk_head_local(rec.get("chunk_text") or "", 150),
         ])
+
         keep = True
-        if need_airport:
+        # Airport with delay intent => require both sets
+        if need_airport and need_delay:
+            keep = _contains_any(window, airport_terms) and _contains_any(window, delay_terms)
+        elif need_airport:
             keep = _contains_any(window, airport_terms)
+
+        # Housing/gentrification intent
         if keep and need_gentr:
-            keep = _contains_any(window, gentr_terms) or _contains_any(window, ["neukolln", "neukölln"])
+            keep = _contains_any(window, housing_terms)
+            if keep and need_loc:
+                keep = _contains_any(window, location_terms) or keep
+
         if keep:
             filtered.append((score, rec))
 
-    # If everything got filtered (rare), fall back to unfitered fused list
-    return filtered if filtered else out
-
+    # Safety net: if we filtered everything, return unfilt fused results
+    return filtered[:k] if filtered else out[:k]
