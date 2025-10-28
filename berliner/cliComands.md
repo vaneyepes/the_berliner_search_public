@@ -62,3 +62,37 @@ python -m berliner.cli search index --index-type flat --model-name "sentence-tra
 # Option 2 (instruction-tuned, stronger than base): E5-large (slower)
 
 python -m berliner.cli search index --index-type flat --model-name "intfloat/e5-large-v2"
+
+# Runing Queries in Model A (MPNet)
+
+# Run your 6 probes quickly
+
+while read -r q; do
+echo "===================="
+echo "QUERY: $q"
+  python -m berliner.cli search "$q" --model "sentence-transformers/multi-qa-mpnet-base-dot-v1" -k 10
+echo
+done << 'EOF'
+Berlin airport delays
+BER flughafen verspätung sicherheitskontrolle
+Neukölln gentrification rent eviction
+Mietendeckel Neukölln Räumung
+Tegel closure history
+Schönefeld to BER transition delays
+EOF
+
+# Runing Queries in Model B (MiniLM-multilingual)
+
+while read -r q; do
+echo "===================="
+echo "QUERY: $q"
+  python -m berliner.cli search "$q" --model "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" -k 10
+echo
+done << 'EOF'
+Berlin airport delays
+BER flughafen verspätung sicherheitskontrolle
+Neukölln gentrification rent eviction
+Mietendeckel Neukölln Räumung
+Tegel closure history
+Schönefeld to BER transition delays
+EOF
