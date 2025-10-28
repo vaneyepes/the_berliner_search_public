@@ -26,12 +26,6 @@ The current production model is
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`,  
 supporting both English and German queries.
 
-Next steps:
-
-- Add hybrid BM25 + FAISS retrieval
-- Improve reranking and ad filtering
-- Deploy minimal web dashboard
-
 ---
 
 ## 🧩 System Architecture – The Berliner Search MVP
