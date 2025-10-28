@@ -1,50 +1,76 @@
+#!/usr/bin/env python3
+"""
+Score labels.tsv and print per-query and macro P@10 + ad counts.
+
+Usage:
+  python eval_scripts/score_eval.py eval/mpnet/labels.tsv
+"""
+from __future__ import annotations
+import sys, csv, json
+from collections import defaultdict
 from pathlib import Path
-import csv, json, statistics
 
-base = Path("eval")
-runs = sorted(base.rglob("labels.tsv"))
-assert runs, "No labels.tsv found. Did you save it next to results.jsonl?"
-labels_path = runs[-1]
-run_dir = labels_path.parent
-jsonl_path = run_dir / "results.jsonl"
+def read_rows(path: Path):
+    with path.open("r", encoding="utf-8") as f:
+        rdr = csv.DictReader(f, delimiter="\t")
+        need = {"query", "rank", "is_relevant"}  # preview is optional
+        miss = need - set(rdr.fieldnames or [])
+        if miss:
+            raise SystemExit(f"[score] labels.tsv header missing columns: {', '.join(sorted(miss))}")
+        for row in rdr:
+            yield row
 
-rows = []
-with open(labels_path, newline="", encoding="utf-8") as f:
-    for r in csv.DictReader(f, delimiter="\t"):
-        r["is_relevant"] = (r["is_relevant"] or "").strip().upper().startswith("Y")
-        r["is_ad"] = (r["is_ad"] or "").strip().upper().startswith("Y")
-        rows.append(r)
+def as_bool(val: str) -> bool:
+    v = (val or "").strip().upper()
+    return v.startswith("Y")  # Y / YES / y
 
-by_q = {}
-for r in rows:
-    by_q.setdefault(r["query"], []).append(r)
+def p_at_10(rows):
+    rs = []
+    for r in rows:
+        try:
+            rank_int = int(r["rank"])
+        except Exception:
+            continue
+        rs.append((rank_int, as_bool(r.get("is_relevant"))))
+    rs.sort(key=lambda x: x[0])
+    top = rs[:10]
+    if not top:
+        return 0.0
+    rel = sum(1 for _, isrel in top if isrel)
+    return rel / 10.0
 
-def p_at_10(items):
-    items = sorted(items, key=lambda x: int(x["rank"]))[:10]
-    return sum(1 for i in items if i["is_relevant"]) / 10.0
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python eval_scripts/score_eval.py <path/to/labels.tsv>")
+        sys.exit(1)
+    labels_path = Path(sys.argv[1])
+    if not labels_path.exists():
+        raise SystemExit(f"[score] Not found: {labels_path}")
 
-def ad_at_10(items):
-    items = sorted(items, key=lambda x: int(x["rank"]))[:10]
-    return sum(1 for i in items if i["is_ad"]) / 10.0
+    by_query = defaultdict(list)
+    ad_irrelevant_count = defaultdict(int)
 
-per_query = []
-for q, items in by_q.items():
-    per_query.append({
-        "query": q,
-        "p@10": round(p_at_10(items), 3),
-        "ad@10": round(ad_at_10(items), 3),
-    })
+    for row in read_rows(labels_path):
+        q = row["query"]
+        by_query[q].append(row)
+        if not as_bool(row.get("is_relevant")) and as_bool(row.get("is_ad")):
+            ad_irrelevant_count[q] += 1
 
-macro = {
-    "macro_p@10": round(statistics.mean([x["p@10"] for x in per_query]), 3),
-    "macro_ad@10": round(statistics.mean([x["ad@10"] for x in per_query]), 3),
-}
+    per_query = []
+    for q, rows in by_query.items():
+        per_query.append({
+            "query": q,
+            "p@10": round(p_at_10(rows), 3),
+            "ads_irrelevant": ad_irrelevant_count[q]
+        })
 
-print("Per-query:")
-for x in per_query: print(x)
-print("\nMacro:", macro)
+    macro = 0.0 if not per_query else sum(x["p@10"] for x in per_query) / len(per_query)
+    out = {
+        "macro_p@10": round(macro, 3),
+        "n_queries": len(per_query),
+        "per_query": per_query,
+    }
+    print(json.dumps(out, ensure_ascii=False, indent=2))
 
-with open(run_dir / "summary.json", "w", encoding="utf-8") as f:
-    json.dump({"per_query": per_query, **macro}, f, ensure_ascii=False, indent=2)
-
-print(f"✅ Wrote {run_dir/'summary.json'}")
+if __name__ == "__main__":
+    main()
