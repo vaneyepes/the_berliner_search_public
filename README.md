@@ -86,18 +86,20 @@ graph LR;
   class APP boundary;
 
   linkStyle default stroke:#7C3AED,stroke-width:1.5px;
-Editors interact with a Web Dashboard that connects to a FastAPI backend.
 
-The backend serves content from two stores:
-
-Processed JSON store (summaries)
-
-Vector store (FAISS) for semantic search.
-
-A background worker extracts and summarizes new PDFs.
-
-The user → API → data → UI loop makes the system interactive, while the worker → store pipeline keeps data fresh.
 ```
+
+- Editors interact with a Web Dashboard, which talks to a FastAPI backend.
+- The backend serves content from two stores:
+
+1. A Processed JSON store (for summaries)
+
+2. A Vector store (for semantic search).
+
+- Meanwhile, a background worker reads new PDFs from the archive, processes them (extract, clean, chunk, summarize), and writes the results back to those stores — logging everything along the way.
+
+- The user → API → data → UI loop makes the system interactive;
+- the worker → stores pipeline keeps data updated.
 
 # 👩‍💻 Author
 
