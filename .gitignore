@@ -36,3 +36,8 @@ notebooks/
 # --- Configs ---
 config.yaml
 !config_template.yaml  # keep a safe example
+
+# --- Dependency and build outputs ---
+dist/
+build/
+*.egg-info/
