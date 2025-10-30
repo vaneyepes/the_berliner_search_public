@@ -275,30 +275,12 @@ def enrich_hits_merged(
         out.append((score, merged))
     return out
 
-# -------- Corrected preview/truncation logic --------
-def _truncate(text: str, n: int) -> str:
-    text = (text or "").strip()
-    if not text:
-        return ""
-    if len(text) <= n:
-        return text
-    cut = text[:n].rsplit(" ", 1)[0]
-    return (cut if cut else text[:n]) + "…"
-
-def rows_from_hits(
-    hits: List[Tuple[float, Dict[str, Any]]],
-    prefer_summary: bool = True
-) -> List[Dict[str, Any]]:
+def rows_from_hits(hits: List[Tuple[float, Dict[str, Any]]]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for score, rec in hits:
         summary = (rec.get("summary_text") or "").strip()
         chunk_head = (rec.get("chunk_text") or "").strip()
-
-        if prefer_summary and summary:
-            preview = _truncate(summary, 400)        # longer summaries
-        else:
-            preview = _truncate(chunk_head or summary, 180)  # shorter raw chunk snippet
-
+        preview = summary[:400] if summary else chunk_head[:400]
         rows.append({
             "score": float(score),
             "issue": rec.get("issue_id"),
@@ -310,7 +292,6 @@ def rows_from_hits(
             "pdf_path": rec.get("source_pdf_path"),
         })
     return rows
-# ----------------------------------------------------
 
 # ========= UI =========
 st.set_page_config(page_title="The Berliner — Smart Archive Search", page_icon="🔎", layout="wide")
@@ -330,20 +311,19 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar — Search Settings
-st.sidebar.header("Search Settings")
-results_limit = st.sidebar.slider("Number of results to show", 3, 25, 10)
-show_summaries = st.sidebar.toggle("Show article summaries", True)
-include_similar = st.sidebar.toggle("Include similar topics", True)  # placeholder for future behavior
-sort_by = st.sidebar.selectbox("Sort results by", ["Relevance", "Chronological"])
+# Sidebar (minimal)
+st.sidebar.header("Settings")
+top_k = st.sidebar.slider("Top-K results", min_value=3, max_value=25, value=10, step=1)
 
 # --- Logo (left-aligned, SVG ) ---
 logo_path = pathlib.Path(DEFAULT_LOGO)
 if logo_path.exists():
     try:
+        # Inline the SVG so the browser doesn’t need a static file path
         svg_text = logo_path.read_text(encoding="utf-8")
         st.markdown(f"<div class='logo-left'><div class='logo-wrap'>{svg_text}</div></div>", unsafe_allow_html=True)
     except Exception:
+        # Fallback: if reading SVG fails (or if DEFAULT_LOGO points to PNG), use st.image
         st.markdown("<div class='logo-left'><div class='logo-wrap'>", unsafe_allow_html=True)
         st.image(str(logo_path), use_container_width=True)
         st.markdown("</div></div>", unsafe_allow_html=True)
@@ -351,7 +331,7 @@ if logo_path.exists():
 # Header
 st.markdown("<h1>Smart Archive Search</h1>", unsafe_allow_html=True)
 st.markdown('<div class="brand-underline"></div>', unsafe_allow_html=True)
-st.caption("AI-assisted search engine for The Berliner ePaper repository • Powered by semantic search")
+st.caption("Explore two decades of The Berliner’s stories through AI‑powered search.")
 
 # Tabs
 tab_search, tab_dash = st.tabs(["🔎 Search", "📊 Dashboard"])
@@ -369,7 +349,7 @@ with tab_search:
         t0 = time.time()
         try:
             with st.spinner("Searching…"):
-                raw_hits = run_cli_search(q, k=int(results_limit), model=DEFAULT_MODEL)
+                raw_hits = run_cli_search(q, k=int(top_k), model=DEFAULT_MODEL)
 
                 enriched_map = load_enriched_meta(str(DEFAULT_ENRICHED_META))
                 chunks_map   = load_lookup_from_chunks(str(DEFAULT_CHUNKS_DIR))
@@ -377,25 +357,7 @@ with tab_search:
                 ids_map      = load_ids_map(INDEX_IDS_PATH)
 
                 hits = enrich_hits_merged(raw_hits, enriched_map, chunks_map, sums_map, ids_map)
-                rows = rows_from_hits(hits, prefer_summary=show_summaries)
-
-            # --- Sort results if user selected "Chronological" ---
-            def _ym_from_issue(issue: str | None) -> tuple[int, int]:
-                if not issue or "_" not in issue:
-                    return (0, 0)
-                parts = str(issue).split("_")
-                nums = [p for p in parts if p.isdigit()]
-                if len(nums) >= 2:
-                    y, m = nums[0], nums[1]
-                    try:
-                        return (int(y), int(m))
-                    except Exception:
-                        return (0, 0)
-                return (0, 0)
-
-            if sort_by == "Chronological":
-                rows.sort(key=lambda r: _ym_from_issue(r.get("issue")), reverse=True)
-            # -------------------------------------------------------
+                rows = rows_from_hits(hits)
 
         except subprocess.CalledProcessError as e:
             st.error(f"CLI error:\n\n{e.output}")
@@ -405,7 +367,7 @@ with tab_search:
             rows = []
 
         elapsed = time.time() - t0
-        st.caption(f"Top {results_limit} · Took {elapsed:.2f}s")
+        st.caption(f"Top {top_k} · Took {elapsed:.2f}s")
 
         if rows:
             st.markdown("### Results")
