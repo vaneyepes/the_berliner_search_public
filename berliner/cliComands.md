@@ -96,3 +96,16 @@ Mietendeckel Neukölln Räumung
 Tegel closure history
 Schönefeld to BER transition delays
 EOF
+
+# Runing one query in model b (final ersion miniLM)
+
+python -m berliner.cli search "Neukölln gentrification rent eviction" \
+ --model "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" \
+ -k 10
+
+# Streamlit app run:
+
+streamlit run "$(pwd)/berliner/ui/app_streamlit.py"
+
+TOKENIZERS_PARALLELISM=false PYTORCH_ENABLE_MPS_FALLBACK=1 \
+streamlit run berliner/ui/app_streamlit.py

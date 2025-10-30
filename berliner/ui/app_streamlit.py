@@ -1,270 +1,380 @@
-# Initial UI for The Berliner Search
-# ------------------------------------------------------------
-# - Provides a clean Search tab that calls your existing search function:
-#       from berliner.search.indexer import query as dense_query
-# - Displays ranked results with issue, pages, score, and snippet
-# - Provides a light "Dashboard" tab that reads existing JSON/JSONL
-#
-# How to run (from repo root, in venv):
-#   streamlit run berliner/ui/app_streamlit.py
-# ------------------------------------------------------------
 
 from __future__ import annotations
+
 import json
 import pathlib
-from typing import Any, Dict, List, Tuple, Optional
+import shlex
+import subprocess
+import sys
+import time
+from typing import Any, Dict, List, Tuple
+from urllib.parse import quote as _urlquote
 
 import streamlit as st
-import pandas as pd  # used for dashboard summaries (lightweight)
 
-# ---------- BRAND / APP CONFIG ----------
-ACCENT = "#E62619"          #  brand red
-DEFAULT_TOP_K = 10            # top-k results default
-DEFAULT_FAISS_TOP = 80        # rerank pool for FAISS candidates
-DEFAULT_HYBRID = False        # hybrid off by default (dense-only)
+# ========= Config =========
+DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DEFAULT_LOGO = "assets/TheBerliner_Logo_1000px_RGB.png"
+ACCENT = "#E62619"
 
-# Default paths (can override these from the sidebar at runtime)
-DEFAULT_PATHS = {
-    "logo": "assets/TheBerliner_Logo_1000px_RGB.png",
-    "faiss_stats_minilm": "data/index/sentence-transformers__paraphrase-multilingual-MiniLM-L12-v2/stats.json",
-    "faiss_ids_minilm": "data/index/sentence-transformers__paraphrase-multilingual-MiniLM-L12-v2/ids.jsonl",
-    "chunks_dir": "data/chunks",
-    "summaries_dir": "data/summaries",
-    "enriched_metadata": "data/enriched/metadata.jsonl",
-}
+# Data locations in repo
+DEFAULT_ENRICHED_META = pathlib.Path("data/enriched/metadata.jsonl")
+DEFAULT_CHUNKS_DIR    = pathlib.Path("data/chunks")
+DEFAULT_SUMMARIES_DIR = pathlib.Path("data/summaries")
+RAW_PDF_DIR           = pathlib.Path("data/raw_pdfs")
 
+def _autodetect_ids_path() -> str:
+    base = pathlib.Path("data/index")
+    if not base.exists():
+        return ""
+    candidates = list(base.rglob("ids.jsonl"))
+    if not candidates:
+        return ""
+    newest = max(candidates, key=lambda p: p.stat().st_mtime)
+    return str(newest)
 
-# ---------- IMPORT SEARCH ENTRYPOINT ----------
-# This is the function existing in berliner/search/indexer.py:
-# results = dense_query(text: str, k: int = 10, hybrid: bool = True, faiss_top: int = 80)
-try:
-    from berliner.search.indexer import query
-    dense_query = query  # alias for clarity
-    _import_error = None
-except Exception as e:
-    dense_query = None
-    _import_error = e
+INDEX_IDS_PATH = _autodetect_ids_path()
 
-# ---------- LIGHT STYLING ----------
-def inject_brand_styles(accent_hex: str, use_webfonts: bool = True) -> None:
-    """
-    Inject minimal CSS to:
-    - Load League Gothic (titles) + Merriweather (body) if available
-    - Set accent color
-    - Style result cards
-    """
-    webfont_css = """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=League+Gothic:wdth,wght@100..125,400&family=Merriweather:wght@300;400;700&display=swap');
-    </style>
-    """ if use_webfonts else ""
-
-    css = f"""
-    {webfont_css}
-    <style>
-      :root {{ --accent: {accent_hex}; }}
-
-      /* Body font defaults */
-      .stApp, .stMarkdown, .stText, .stDataFrame, p, li {{
-        font-family: {'Merriweather, Georgia, Times New Roman, serif' if use_webfonts else 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif'};
-        font-size: 16px;
-      }}
-
-      /* Titles: League Gothic if loaded, otherwise fallback */
-      h1, h2, h3, .section-title {{
-        font-family: {'League Gothic, Impact, Anton, sans-serif' if use_webfonts else 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif'};
-        letter-spacing: 0.2px;
-      }}
-
-      /* Accented buttons */
-      .stButton>button, .stDownloadButton>button {{
-        border-radius: 8px;
-        border: 1px solid var(--accent);
-      }}
-      .stButton>button[kind="primary"], .stDownloadButton>button {{
-        background-color: var(--accent);
-        color: #fff;
-      }}
-
-      .brand-underline {{
-        height: 3px;
-        background: var(--accent);
-        margin: 0.25rem 0 1rem 0;
-      }}
-
-      .result-card {{
-        border: 1px solid #e9e9e9;
-        border-left: 4px solid var(--accent);
-        border-radius: 8px;
-        padding: 0.9rem 1rem;
-        margin-bottom: 0.75rem;
-        background: #fff;
-      }}
-
-      .meta {{
-        color: #555;
-        font-size: 0.9rem;
-      }}
-
-      .score-badge {{
-        display: inline-block;
-        padding: 2px 8px;
-        border: 1px solid var(--accent);
-        border-radius: 999px;
-        font-size: 0.8rem;
-        color: var(--accent);
-      }}
-
-      .soft-sep {{
-        border-top: 1px solid #eee;
-        margin: 0.75rem 0;
-      }}
-    </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
-
-
-# ---------- FILE HELPERS ----------
-def path_exists(p: str | pathlib.Path) -> bool:
-    return pathlib.Path(p).exists()
-
-def load_json(path: str) -> Optional[Dict[str, Any]]:
-    """Load small JSON files (e.g., stats.json). Returns None if missing/invalid."""
-    p = pathlib.Path(path)
-    if not p.exists():
-        return None
+# ========= Small helpers =========
+def _file_uri(p: pathlib.Path | str) -> str:
+    """Turn a local file path into a file:// URL for opening in the browser."""
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        p = pathlib.Path(p).resolve()
+        return "file://" + _urlquote(str(p))
     except Exception:
-        return None
+        return ""
 
-def iter_jsonl(path: str | pathlib.Path):
-    """Yield dicts from a JSONL file; skip bad lines silently."""
-    p = pathlib.Path(path)
+def _val_ok(v):
+    if v is None:
+        return False
+    if isinstance(v, str):
+        return v.strip() != ""
+    return True
+
+# ========= CLI Search =========
+@st.cache_data(show_spinner=False)
+def run_cli_search(query: str, k: int = 10, model: str = DEFAULT_MODEL) -> List[Tuple[float, Dict[str, Any]]]:
+    cmd = [sys.executable, "-m", "berliner.cli", "search", query, "--model", model, "-k", str(int(k))]
+    out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
+    results: List[Tuple[float, Dict[str, Any]]] = []
+    for raw in out.splitlines():
+        line = raw.strip()
+        if not line or "score=" not in line or "chunk=" not in line:
+            continue
+        parts = shlex.split(line)
+        kv = {}
+        for p in parts:
+            if "=" in p:
+                k, v = p.split("=", 1)
+                kv[k.strip()] = v.strip().strip(",")
+        try:
+            score = float(kv.get("score", "0"))
+        except Exception:
+            score = 0.0
+        rec: Dict[str, Any] = {
+            "issue_id": kv.get("issue") or kv.get("issue_id"),
+            "chunk_id": kv.get("chunk") or kv.get("chunk_id"),
+            "title": kv.get("title", ""),
+        }
+        rec["summary_text"] = ""
+        rec["chunk_text"] = ""
+        rec["has_summary"] = False
+        results.append((score, rec))
+    return results
+
+# ========= Loaders =========
+@st.cache_data(show_spinner=False)
+def load_enriched_meta(meta_path: str) -> Dict[str, Dict[str, Any]]:
+    """Primary source for previews/titles: data/enriched/metadata.jsonl (used by your CLI)."""
+    out: Dict[str, Dict[str, Any]] = {}
+    p = pathlib.Path(meta_path)
     if not p.exists():
-        return
+        return out
     with p.open("r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line:
+            s = line.strip()
+            if not s:
                 continue
             try:
-                yield json.loads(line)
+                rec = json.loads(s)
             except Exception:
                 continue
+            cid = rec.get("chunk_id")
+            if not cid:
+                continue
+            out[cid] = {
+                "summary_text": (rec.get("summary_text") or "").strip(),
+                "chunk_text":   (rec.get("chunk_text") or rec.get("preview") or "").strip(),
+                "title":        (rec.get("title") or rec.get("section_title") or rec.get("headline") or "").strip(),
+                "page_span": rec.get("page_span"),
+                "issue_id":  rec.get("issue_id"),
+                "source_pdf_path": rec.get("source_pdf_path"),
+            }
+    return out
 
+@st.cache_data(show_spinner=False)
+def load_lookup_from_chunks(chunks_dir: str) -> Dict[str, Dict[str, Any]]:
+    lookup: Dict[str, Dict[str, Any]] = {}
+    d = pathlib.Path(chunks_dir)
+    if not d.exists():
+        return lookup
+    for fp in d.glob("*.jsonl"):
+        try:
+            with fp.open("r", encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s:
+                        continue
+                    try:
+                        obj = json.loads(s)
+                    except Exception:
+                        continue
+                    cid = obj.get("chunk_id") or obj.get("id")
+                    if not cid:
+                        continue
+                    rec = lookup.setdefault(cid, {})
+                    # prefer 'text' for chunks
+                    if "text" in obj and obj["text"]:
+                        rec.setdefault("chunk_text", obj["text"][:600])
+                    if "title" in obj and obj["title"]:
+                        rec.setdefault("title", obj["title"])
+                    if "page_span" in obj and obj["page_span"]:
+                        rec.setdefault("page_span", obj["page_span"])
+                    if "issue_id" in obj and obj["issue_id"]:
+                        rec.setdefault("issue_id", obj["issue_id"])
+        except Exception:
+            continue
+    return lookup
 
-# ---------- NORMALIZE SEARCH RESULTS ----------
-def normalize_hits(hits: List[Tuple[float, Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """
-    Convert [(score, rec), ...] into a uniform dict we can render.
-    Pull: issue_id, chunk_id, page_span, title, summary_text/chunk_text head.
-    """
+@st.cache_data(show_spinner=False)
+def load_lookup_from_summaries(summaries_dir: str) -> Dict[str, Dict[str, Any]]:
+    look: Dict[str, Dict[str, Any]] = {}
+    d = pathlib.Path(summaries_dir)
+    if not d.exists():
+        return look
+    for fp in d.glob("*.jsonl"):
+        if fp.name.startswith("_catalog"):
+            continue
+        try:
+            with fp.open("r", encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s:
+                        continue
+                    try:
+                        obj = json.loads(s)
+                    except Exception:
+                        continue
+                    cid = obj.get("chunk_id") or obj.get("id")
+                    if not cid:
+                        continue
+                    rec = look.setdefault(cid, {})
+                    if "summary" in obj and obj["summary"]:
+                        rec.setdefault("summary_text", obj["summary"])
+                    if "page_span" in obj and obj["page_span"]:
+                        rec.setdefault("page_span", obj["page_span"])
+                    if "issue_id" in obj and obj["issue_id"]:
+                        rec.setdefault("issue_id", obj["issue_id"])
+        except Exception:
+            continue
+    return look
+
+@st.cache_data(show_spinner=False)
+def load_ids_map(ids_path: str) -> Dict[str, Dict[str, Any]]:
+    m: Dict[str, Dict[str, Any]] = {}
+    path = pathlib.Path(ids_path)
+    if not path or not path.exists():
+        return m
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            cid = obj.get("chunk_id") or obj.get("id") or obj.get("chunk")
+            if not cid:
+                meta = obj.get("meta") or {}
+                cid = meta.get("chunk_id") or meta.get("id") or meta.get("chunk")
+            if not cid:
+                continue
+            rec: Dict[str, Any] = {}
+            # lightweight support
+            if isinstance(obj.get("title"), str) and obj["title"]:
+                rec["title"] = obj["title"]
+            head = obj.get("chunk_text") or obj.get("head") or obj.get("text") or ""
+            if isinstance(head, str) and head:
+                rec["chunk_text"] = head[:600]
+            if obj.get("page_span"):
+                rec["page_span"] = obj["page_span"]
+            if obj.get("issue_id"):
+                rec["issue_id"] = obj["issue_id"]
+            if isinstance(obj.get("summary_text"), str) and obj["summary_text"]:
+                rec["summary_text"] = obj["summary_text"]
+            m[cid] = rec
+    return m
+
+# ========= Merge Logic (non-destructive) =========
+def _safe_merge(base: Dict[str, Any], add: Dict[str, Any], keys: List[str]):
+    for k in keys:
+        if not _val_ok(base.get(k)) and _val_ok(add.get(k)):
+            base[k] = add[k]
+
+def enrich_hits_merged(
+    hits: List[Tuple[float, Dict[str, Any]]],
+    enriched_map: Dict[str, Dict[str, Any]],
+    chunks_map: Dict[str, Dict[str, Any]],
+    sums_map: Dict[str, Dict[str, Any]],
+    ids_map: Dict[str, Dict[str, Any]],
+) -> List[Tuple[float, Dict[str, Any]]]:
+    out: List[Tuple[float, Dict[str, Any]]] = []
+    for score, rec in hits:
+        cid = rec.get("chunk_id", "")
+        merged = dict(rec)
+        fields = {
+            "issue_id": merged.get("issue_id"),
+            "title": merged.get("title"),
+            "page_span": merged.get("page_span"),
+            "summary_text": merged.get("summary_text"),
+            "chunk_text": merged.get("chunk_text"),
+            "source_pdf_path": merged.get("source_pdf_path"),
+        }
+        # Priority: enriched -> chunks -> summaries -> ids
+        for source in (enriched_map, chunks_map, sums_map, ids_map):
+            if cid in source:
+                _safe_merge(fields, source[cid],
+                            ["issue_id", "title", "page_span", "summary_text", "chunk_text", "source_pdf_path"])
+        if not _val_ok(fields["issue_id"]) and "#" in cid:
+            fields["issue_id"] = cid.split("#", 1)[0]
+
+        # Heuristic fallback: if no source_pdf_path, try issue-based guess in RAW_PDF_DIR
+        if not _val_ok(fields.get("source_pdf_path")) and _val_ok(fields.get("issue_id")):
+            iss = str(fields["issue_id"])
+            cand1 = RAW_PDF_DIR / f"{iss}.pdf"
+            if cand1.exists():
+                fields["source_pdf_path"] = str(cand1)
+            else:
+                parts = iss.split("_")
+                ym = None
+                if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                    ym = (parts[1], parts[2])
+                candidates = []
+                if ym:
+                    for pat in (f"*{ym[0]}_{ym[1]}*.pdf", f"*{ym[0]}-{ym[1]}*.pdf"):
+                        candidates.extend(RAW_PDF_DIR.glob(pat))
+                if not candidates:
+                    candidates = list(RAW_PDF_DIR.glob(f"*{iss}*.pdf"))
+                if candidates:
+                    best = max(candidates, key=lambda p: p.stat().st_mtime)
+                    fields["source_pdf_path"] = str(best)
+
+        merged.update(fields)
+        merged["has_summary"] = bool(merged.get("summary_text"))
+        out.append((score, merged))
+    return out
+
+def rows_from_hits(hits: List[Tuple[float, Dict[str, Any]]]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for score, rec in hits:
-        issue = rec.get("issue_id") or rec.get("issue")
-        chunk = rec.get("chunk_id") or rec.get("chunk")
-        pages = rec.get("page_span") or rec.get("pages")
-        title = (rec.get("title") or "").strip()
         summary = (rec.get("summary_text") or "").strip()
         chunk_head = (rec.get("chunk_text") or "").strip()
-        preview = summary[:300] if summary else chunk_head[:300]
+        preview = summary[:400] if summary else chunk_head[:400]
         rows.append({
             "score": float(score),
-            "issue": issue,
-            "chunk": chunk,
-            "pages": pages,
-            "title": title,
+            "issue": rec.get("issue_id"),
+            "chunk": rec.get("chunk_id"),
+            "pages": rec.get("page_span"),
+            "title": (rec.get("title") or "").strip(),
             "preview": preview or "",
-            "has_summary": bool(rec.get("has_summary", bool(summary))),
+            "has_summary": bool(summary),
+            "pdf_path": rec.get("source_pdf_path"),
         })
     return rows
 
+# ========= UI =========
+st.set_page_config(page_title="The Berliner — Smart Archive Search", page_icon="🔎", layout="wide")
 
-# ---------- APP START ----------
-st.set_page_config(
-    page_title="The Berliner — Archive Search",
-    page_icon="🔎",
-    layout="wide",
-)
-inject_brand_styles(ACCENT, use_webfonts=True)
+st.markdown(f"""
+<style>
+:root {{ --accent: {ACCENT}; }}
+.result-card {{border:1px solid #e9e9e9;border-left:4px solid var(--accent);border-radius:8px;padding:0.9rem 1rem;margin-bottom:0.75rem;background:#fff;}}
+.score-badge {{display:inline-block;padding:2px 8px;border:1px solid var(--accent);border-radius:999px;font-size:0.8rem;color:var(--accent);}}
+.soft-sep {{ border-top:1px solid #eee; margin:0.75rem 0; }}
+.brand-underline {{ height:3px; background: var(--accent); margin: 0.25rem 0 1rem 0; }}
+</style>
+""", unsafe_allow_html=True)
 
-# ---------- SIDEBAR ----------
+# Sidebar (minimal)
 st.sidebar.header("Settings")
-logo_path = st.sidebar.text_input("Logo path", value=DEFAULT_PATHS["logo"])
-accent = st.sidebar.color_picker("Accent color", value=ACCENT)
-top_k = st.sidebar.slider("Top-K results", 3, 30, DEFAULT_TOP_K, 1)
-faiss_top = st.sidebar.slider("FAISS candidates (pool)", 40, 320, DEFAULT_FAISS_TOP, 20)
-hybrid = st.sidebar.toggle("Hybrid search (BM25 + dense if available)", value=DEFAULT_HYBRID)
+logo_path = st.sidebar.text_input("Logo path", value=str(DEFAULT_LOGO))
+if pathlib.Path(logo_path).exists():
+    st.sidebar.image(logo_path, width="stretch")
+top_k = st.sidebar.slider("Top-K results", min_value=3, max_value=25, value=10, step=1)
 
-with st.sidebar.expander("Dashboard data (optional)", expanded=False):
-    fp_stats = st.text_input("FAISS stats (MiniLM)", value=DEFAULT_PATHS["faiss_stats_minilm"])
-    fp_ids = st.text_input("FAISS ids (MiniLM)", value=DEFAULT_PATHS["faiss_ids_minilm"])
-    dir_chunks = st.text_input("Chunks dir", value=DEFAULT_PATHS["chunks_dir"])
-    dir_summ = st.text_input("Summaries dir", value=DEFAULT_PATHS["summaries_dir"])
-    fp_meta = st.text_input("Enriched metadata", value=DEFAULT_PATHS["enriched_metadata"])
+# Header
+st.markdown("<h1>Smart Archive Search</h1>", unsafe_allow_html=True)
+st.markdown('<div class="brand-underline"></div>', unsafe_allow_html=True)
+st.caption(
+    f"Semantic search over The Berliner’s PDF archive • Search mode: CLI · "
+    f"enriched: {'ok' if DEFAULT_ENRICHED_META.exists() else 'missing'} · ids: {INDEX_IDS_PATH or 'none'}"
+)
 
-# ---------- HEADER ----------
-cols = st.columns([0.18, 0.82])
-with cols[0]:
-    if path_exists(logo_path):
-        st.image(logo_path, use_container_width=True)
-with cols[1]:
-    st.markdown("<h1>Smart Archive Search</h1>", unsafe_allow_html=True)
-    st.markdown('<div class="brand-underline"></div>', unsafe_allow_html=True)
-    st.caption("Semantic search over The Berliner’s PDF archive")
+# Tabs
+tab_search, tab_dash = st.tabs(["🔎 Search", "📊 Dashboard"])
 
-# ---------- TABS ----------
-tab_search, tab_dashboard = st.tabs(["🔎 Search", "📊 Dashboard"])
-
-# --- SEARCH TAB ---
 with tab_search:
-    if _import_error:
-        st.error(
-            "Could not import `berliner.search.indexer.query`. "
-            "Make sure you installed the package in editable mode and activated the venv.\n\n"
-            f"Details: {_import_error}"
+    with st.form(key="search-form"):
+        q = st.text_input(
+            "Query",
+            placeholder="e.g., Berlin airport delays, gentrification in Neukölln, citizenship applications",
+            label_visibility="collapsed",
         )
+        submitted = st.form_submit_button("Search", type="primary")
 
-    st.markdown("### Enter your query")
-    q = st.text_input(
-        "Query",
-        placeholder="e.g., Berlin airport delays, gentrification in Neukölln, citizenship applications",
-        label_visibility="collapsed",
-    )
-
-    c1, c2 = st.columns([0.2, 0.8])
-    with c1:
-        submit = st.button("Search", type="primary", use_container_width=True)
-    with c2:
-        st.caption(f"Top **{top_k}** • FAISS pool {faiss_top} • Hybrid = {hybrid}")
-
-    st.markdown('<div class="soft-sep"></div>', unsafe_allow_html=True)
-
-    if submit and q and dense_query is not None:
+    if submitted and q:
+        t0 = time.time()
         try:
-            # Call your existing search implementation
-            hits = dense_query(text=q, k=int(top_k), hybrid=bool(hybrid), faiss_top=int(faiss_top))
+            with st.spinner("Searching…"):
+                raw_hits = run_cli_search(q, k=int(top_k), model=DEFAULT_MODEL)
+
+                enriched_map = load_enriched_meta(str(DEFAULT_ENRICHED_META))
+                chunks_map   = load_lookup_from_chunks(str(DEFAULT_CHUNKS_DIR))
+                sums_map     = load_lookup_from_summaries(str(DEFAULT_SUMMARIES_DIR))
+                ids_map      = load_ids_map(INDEX_IDS_PATH)
+
+                hits = enrich_hits_merged(raw_hits, enriched_map, chunks_map, sums_map, ids_map)
+                rows = rows_from_hits(hits)
+
+        except subprocess.CalledProcessError as e:
+            st.error(f"CLI error:\n\n{e.output}")
+            rows = []
         except Exception as e:
             st.error(f"Search failed: {e}")
-            hits = []
+            rows = []
 
-        rows = normalize_hits(hits) if hits else []
+        elapsed = time.time() - t0
+        st.caption(f"Top {top_k} · Took {elapsed:.2f}s")
 
         if rows:
-            st.markdown("#### Results")
+            st.markdown("### Results")
             for r in rows:
-                issue = r.get("issue", "")
-                chunk = r.get("chunk", "")
+                issue = r.get("issue") or "—"
+                chunk = r.get("chunk") or "—"
                 pages = r.get("pages", None)
                 title = r.get("title", "")
                 preview = r.get("preview", "")
                 score = r.get("score", 0.0)
                 has_summary = r.get("has_summary", False)
+                pdf_path = r.get("pdf_path")
 
-                # Pretty formatting for pages if [start, end]
                 pages_str = f" · pages {pages[0]}–{pages[1]}" if isinstance(pages, list) and len(pages) == 2 else ""
                 title_str = f" — *{title}*" if title else ""
+
+                pdf_html = ""
+                if pdf_path and pathlib.Path(pdf_path).exists():
+                    pdf_html = f'<div style="margin-top:0.25rem;"><a href="{_file_uri(pdf_path)}" target="_blank" style="font-weight:600; color: var(--accent);">Open PDF of this edition</a></div>'
 
                 st.markdown(
                     f"""
@@ -275,81 +385,16 @@ with tab_search:
                       </div>
                       <div class="soft-sep"></div>
                       <div>{preview if preview else "<em>No preview available</em>"}</div>
-                      <div class="meta" style="margin-top: 0.4rem;">
-                        {"Summary available" if has_summary else "No summary"} · Dense retrieval
+                      <div style="color:#555; font-size:0.9rem; margin-top:0.4rem;">
+                        {"Summary available" if has_summary else "No summary"} · Dense retrieval (CLI)
                       </div>
+                      {pdf_html}
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
-        elif submit:
-            st.info("No results. Try a different query or increase FAISS candidates.")
+        else:
+            st.info("No results. Try another query.")
 
-# --- DASHBOARD TAB (MVP-light, reads existing files only) ---
-with tab_dashboard:
-    st.markdown("### Archive Dashboard (MVP-light)")
-    st.caption("Reads existing JSON/JSONL files at runtime. No new files will be generated.")
-
-    # KPI placeholders
-    kcol = st.columns(5)
-    total_issues = "—"
-    total_chunks = "—"
-    summary_coverage = "—"
-    vec_dim = "—"
-    vec_count = "—"
-
-    # From FAISS stats.json (MiniLM)
-    stats = load_json(fp_stats)
-    if stats:
-        vec_dim = stats.get("embedding_dim") or stats.get("dim") or "—"
-        vec_count = stats.get("num_vectors") or stats.get("count") or "—"
-
-    # From ids.jsonl — counts & issue set
-    ids_count = 0
-    issues_set = set()
-    if path_exists(fp_ids):
-        for rec in iter_jsonl(fp_ids):
-            ids_count += 1
-            issue = rec.get("issue_id")
-            if not issue:
-                chunk_id = rec.get("chunk_id", "")
-                if "#" in chunk_id:
-                    issue = chunk_id.split("#", 1)[0]
-            if issue:
-                issues_set.add(issue)
-
-    if issues_set:
-        total_issues = len(issues_set)
-    if ids_count:
-        total_chunks = ids_count
-
-    # Summary coverage (rough count across summaries/*.jsonl)
-    summary_count = 0
-    if path_exists(dir_summ):
-        for f in pathlib.Path(dir_summ).glob("*.jsonl"):
-            if f.name.startswith("_catalog"):
-                continue
-            for _ in iter_jsonl(str(f)):
-                summary_count += 1
-    if ids_count:
-        summary_coverage = f"{(summary_count / ids_count * 100):.1f}%" if summary_count else "0.0%"
-
-    with kcol[0]:
-        st.metric("Issues indexed", total_issues)
-    with kcol[1]:
-        st.metric("Chunks (vectors)", total_chunks)
-    with kcol[2]:
-        st.metric("Summaries coverage", summary_coverage)
-    with kcol[3]:
-        st.metric("Vector dim", vec_dim)
-    with kcol[4]:
-        st.metric("Total vectors", vec_count)
-
-    st.markdown('<div class="soft-sep"></div>', unsafe_allow_html=True)
-    st.info(
-        "Next: add charts (chunks per issue, coverage by issue, issues over time) "
-        "using your existing JSONL. This tab currently avoids heavy parsing."
-    )
-
-# ---------- FOOTER ----------
-st.caption("© The Berliner — Internal Smart Search tool by Vanesa Yepes")
+with tab_dash:
+    st.info("Dashboard coming next. Reads existing stats/listings only (no new processing).")
