@@ -13,7 +13,6 @@ import streamlit as st
 
 # ========= Config =========
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-# Point to your SVG by default. If you only have a PNG, this code will still work.
 DEFAULT_LOGO = "assets/TheBerliner_Logo.svg"
 ACCENT = "#E62619"
 
@@ -37,7 +36,6 @@ INDEX_IDS_PATH = _autodetect_ids_path()
 
 # ========= Small helpers =========
 def _file_uri(p: pathlib.Path | str) -> str:
-    """Turn a local file path into a file:// URL for opening in the browser."""
     try:
         p = pathlib.Path(p).resolve()
         return "file://" + _urlquote(str(p))
@@ -85,7 +83,6 @@ def run_cli_search(query: str, k: int = 10, model: str = DEFAULT_MODEL) -> List[
 # ========= Loaders =========
 @st.cache_data(show_spinner=False)
 def load_enriched_meta(meta_path: str) -> Dict[str, Dict[str, Any]]:
-    """Primary source for previews/titles: data/enriched/metadata.jsonl (used by your CLI)."""
     out: Dict[str, Dict[str, Any]] = {}
     p = pathlib.Path(meta_path)
     if not p.exists():
@@ -133,7 +130,6 @@ def load_lookup_from_chunks(chunks_dir: str) -> Dict[str, Dict[str, Any]]:
                     if not cid:
                         continue
                     rec = lookup.setdefault(cid, {})
-                    # prefer 'text' for chunks
                     if "text" in obj and obj["text"]:
                         rec.setdefault("chunk_text", obj["text"][:600])
                     if "title" in obj and obj["title"]:
@@ -201,7 +197,6 @@ def load_ids_map(ids_path: str) -> Dict[str, Dict[str, Any]]:
             if not cid:
                 continue
             rec: Dict[str, Any] = {}
-            # lightweight support
             if isinstance(obj.get("title"), str) and obj["title"]:
                 rec["title"] = obj["title"]
             head = obj.get("chunk_text") or obj.get("head") or obj.get("text") or ""
@@ -241,7 +236,6 @@ def enrich_hits_merged(
             "chunk_text": merged.get("chunk_text"),
             "source_pdf_path": merged.get("source_pdf_path"),
         }
-        # Priority: enriched -> chunks -> summaries -> ids
         for source in (enriched_map, chunks_map, sums_map, ids_map):
             if cid in source:
                 _safe_merge(fields, source[cid],
@@ -249,7 +243,6 @@ def enrich_hits_merged(
         if not _val_ok(fields["issue_id"]) and "#" in cid:
             fields["issue_id"] = cid.split("#", 1)[0]
 
-        # Heuristic fallback: if no source_pdf_path, try issue-based guess in RAW_PDF_DIR
         if not _val_ok(fields.get("source_pdf_path")) and _val_ok(fields.get("issue_id")):
             iss = str(fields["issue_id"])
             cand1 = RAW_PDF_DIR / f"{iss}.pdf"
@@ -275,7 +268,7 @@ def enrich_hits_merged(
         out.append((score, merged))
     return out
 
-# -------- Corrected preview/truncation logic --------
+# -------- Preview/truncation logic --------
 def _truncate(text: str, n: int) -> str:
     text = (text or "").strip()
     if not text:
@@ -295,9 +288,9 @@ def rows_from_hits(
         chunk_head = (rec.get("chunk_text") or "").strip()
 
         if prefer_summary and summary:
-            preview = _truncate(summary, 400)        # longer summaries
+            preview = _truncate(summary, 800)  # longer summaries
         else:
-            preview = _truncate(chunk_head or summary, 180)  # shorter raw chunk snippet
+            preview = ""  # hide body when summaries are off
 
         rows.append({
             "score": float(score),
@@ -305,7 +298,7 @@ def rows_from_hits(
             "chunk": rec.get("chunk_id"),
             "pages": rec.get("page_span"),
             "title": (rec.get("title") or "").strip(),
-            "preview": preview or "",
+            "preview": preview,
             "has_summary": bool(summary),
             "pdf_path": rec.get("source_pdf_path"),
         })
@@ -334,10 +327,10 @@ st.markdown(f"""
 st.sidebar.header("Search Settings")
 results_limit = st.sidebar.slider("Number of results to show", 3, 25, 10)
 show_summaries = st.sidebar.toggle("Show article summaries", True)
-include_similar = st.sidebar.toggle("Include similar topics", True)  # placeholder for future behavior
+include_similar = st.sidebar.toggle("Include similar topics", True)  # (placeholder)
 sort_by = st.sidebar.selectbox("Sort results by", ["Relevance", "Chronological"])
 
-# --- Logo (left-aligned, SVG ) ---
+# --- Logo (left-aligned, SVG) ---
 logo_path = pathlib.Path(DEFAULT_LOGO)
 if logo_path.exists():
     try:
@@ -426,17 +419,23 @@ with tab_search:
                 if pdf_path and pathlib.Path(pdf_path).exists():
                     pdf_html = f'<div style="margin-top:0.25rem;"><a href="{_file_uri(pdf_path)}" target="_blank" style="font-weight:600; color: var(--accent);">Open PDF of this edition</a></div>'
 
+                status_text = (
+                    ("Summary available" if has_summary else "No summary")
+                    if show_summaries
+                    else ("Summary hidden" if has_summary else "No summary")
+                )
+                # Displasys summaries if enabled, else shows chunk preview only if no summary
                 st.markdown(
                     f"""
                     <div class="result-card">
-                      <div><span class="score-badge">score {score:.4f}</span></div>
+                      <div><span class="score-badge">Relevance {score*100:.0f}%</span></div>
                       <div style="margin-top: 0.35rem;">
                         <strong>{issue}</strong> · <code>{chunk}</code>{pages_str}{title_str}
                       </div>
                       <div class="soft-sep"></div>
-                      <div>{preview if preview else "<em>No preview available</em>"}</div>
+                      <div>{preview}</div>
                       <div style="color:#555; font-size:0.9rem; margin-top:0.4rem;">
-                        {"Summary available" if has_summary else "No summary"} · Dense retrieval (CLI)
+                        {status_text} · Dense retrieval (CLI)
                       </div>
                       {pdf_html}
                     </div>
