@@ -11,6 +11,14 @@ from urllib.parse import quote as _urlquote
 
 import streamlit as st
 
+# --- NEW: lightweight extras for the dashboard ---
+# Counter/re for simple keyword extraction; matplotlib for small charts
+from collections import Counter
+import re
+import matplotlib.pyplot as plt
+from matplotlib import colors as mcolors
+
+
 # ========= Config =========
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_LOGO = "assets/TheBerliner_Logo.svg"
@@ -323,14 +331,14 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar — Search Settings
+# Sidebar — Search Settings (UNCHANGED)
 st.sidebar.header("Search Settings")
 results_limit = st.sidebar.slider("Number of results to show", 3, 25, 10)
 show_summaries = st.sidebar.toggle("Show article summaries", True)
 include_similar = st.sidebar.toggle("Include similar topics", True)  # (placeholder)
 sort_by = st.sidebar.selectbox("Sort results by", ["Relevance", "Chronological"])
 
-# --- Logo (left-aligned, SVG) ---
+# --- Logo (left-aligned, SVG) --- (UNCHANGED)
 logo_path = pathlib.Path(DEFAULT_LOGO)
 if logo_path.exists():
     try:
@@ -341,14 +349,15 @@ if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
         st.markdown("</div></div>", unsafe_allow_html=True)
 
-# Header
+# Header (UNCHANGED)
 st.markdown("<h1>Smart Archive Search</h1>", unsafe_allow_html=True)
 st.markdown('<div class="brand-underline"></div>', unsafe_allow_html=True)
 st.caption("AI-assisted search engine for The Berliner ePaper repository • Powered by semantic search")
 
-# Tabs
+# Tabs (UNCHANGED shell)
 tab_search, tab_dash = st.tabs(["🔎 Search", "📊 Dashboard"])
 
+# ======== SEARCH TAB (UNCHANGED LOGIC) ========
 with tab_search:
     with st.form(key="search-form"):
         q = st.text_input(
@@ -424,7 +433,7 @@ with tab_search:
                     if show_summaries
                     else ("Summary hidden" if has_summary else "No summary")
                 )
-                # Displasys summaries if enabled, else shows chunk preview only if no summary
+                # NOTE: we keep your relevance % badge and the preview behavior intact
                 st.markdown(
                     f"""
                     <div class="result-card">
@@ -445,5 +454,178 @@ with tab_search:
         else:
             st.info("No results. Try another query.")
 
+# ======== DASHBOARD TAB (NEW — minimal, editor-oriented) ========
+# Berliner accent colors for charts
+ACCENT = "#E62619"  # you already have this
+ACCENT_SOFT = mcolors.to_rgba(ACCENT, 0.30)  # light red fill (~30% opacity)
+GRID_GREY = "#D9D9D9"
+
 with tab_dash:
-    st.info("Dashboard coming next. Reads existing stats/listings only (no new processing).")
+    # We keep this fully decoupled from search; reads only from enriched metadata.
+    st.markdown("### The Berliner Archive Overview")
+
+    # --- Collect lightweight stats from enriched metadata (cached by Streamlit) ---
+    @st.cache_data(show_spinner=False)
+    def _dashboard_stats(meta_path: str):
+        data = load_enriched_meta(meta_path)
+        if not data:
+            return None
+
+        # Totals & coverage
+        total_chunks = len(data)
+        issues = [v.get("issue_id") for v in data.values() if _val_ok(v.get("issue_id"))]
+        total_issues = len(set(issues)) if issues else 0
+        summarized = sum(1 for v in data.values() if _val_ok(v.get("summary_text")))
+        coverage_pct = (summarized / total_chunks * 100.0) if total_chunks else 0.0
+
+        # Average summary length (words)
+        words = []
+        for v in data.values():
+            s = (v.get("summary_text") or "").strip()
+            if s:
+                words.append(len(re.findall(r"\w+", s)))
+        avg_summary_words = (sum(words) / len(words)) if words else 0.0
+
+        # Issues per year (parse TB_YYYY_MM pattern)
+        def year_from_issue(iss: str) -> int | None:
+            parts = str(iss).split("_") if iss else []
+            nums = [p for p in parts if p.isdigit()]
+            if nums:
+                try:
+                    y = int(nums[0])
+                    return y if 1900 <= y <= 2100 else None
+                except Exception:
+                    return None
+            return None
+
+        year_counts: Dict[int, int] = {}
+        for iss in issues:
+            y = year_from_issue(iss)
+            if y:
+                year_counts[y] = year_counts.get(y, 0) + 1
+
+        # Very light keyword extraction (titles + summaries)
+        STOP = set("""
+        the a an and or of for to from in on at by with without about into over under after before
+        this that those these is are was were be been being it its as not no yes you your we our their
+        they them he she his her i me my ours theirs within across among between per vs versus via
+        berlin berliner
+        has have had having will would should could may might can cannot
+        out up down there here when where who what which while if then than
+        but because so also yet just even only
+        new one two three four five
+        """.split())
+
+        counts = Counter()
+        for v in data.values():
+            text = " ".join([v.get("title") or "", v.get("summary_text") or ""]).lower()
+            tokens = re.findall(r"[a-zA-Züöäß]+", text)  # allow German umlauts
+            for t in tokens:
+                if len(t) < 3 or t in STOP:
+                    continue
+                counts[t] += 1
+        top_keywords = counts.most_common(15)
+
+        return {
+            "total_chunks": total_chunks,
+            "total_issues": total_issues,
+            "summarized": summarized,
+            "coverage_pct": coverage_pct,
+            "avg_summary_words": avg_summary_words,
+            "issues_per_year": dict(sorted(year_counts.items())),
+            "top_keywords": top_keywords,
+        }
+
+    stats = _dashboard_stats(str(DEFAULT_ENRICHED_META))
+
+    if not stats:
+        st.info("No metadata found. Place your enriched metadata at `data/enriched/metadata.jsonl`.")
+    else:
+                # --- Compact editor-facing metrics (top row) ---
+        metric_title_style = """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@700&display=swap');
+
+        .metric-label {
+            font-family: 'Roboto Condensed', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-weight: 700;
+            color: #E62619;
+            font-size: 1rem;
+            margin-bottom: -0.20rem;  /* 👈 reduces space between title and number */
+            line-height: 1.1;         /* tighter line spacing */
+        }
+        </style>
+        """
+        st.markdown(metric_title_style, unsafe_allow_html=True)
+
+        # --- Metric row (numbers unchanged) ---
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.markdown("<div class='metric-label'>Issues indexed</div>", unsafe_allow_html=True)
+        c1.metric("", f"{stats['total_issues']}")
+
+        c2.markdown("<div class='metric-label'>Articles summarized</div>", unsafe_allow_html=True)
+        c2.metric("", f"{stats['summarized']} / {stats['total_chunks']}")
+
+        c3.markdown("<div class='metric-label'>Summary coverage</div>", unsafe_allow_html=True)
+        c3.metric("", f"{stats['coverage_pct']:.0f}%")
+
+        c4.markdown("<div class='metric-label'>Avg. summary length</div>", unsafe_allow_html=True)
+        c4.metric("", f"{stats['avg_summary_words']:.0f} words")
+
+        # --- Add divider before bar charts ---
+        st.divider()
+
+
+        # --- Charts side by side ---
+        col1, col2 = st.columns(2)
+
+        with col1:
+            years = list(stats["issues_per_year"].keys())
+            counts = list(stats["issues_per_year"].values())
+            if years:
+                fig1, ax1 = plt.subplots()
+                # Flat Berliner red bars
+                ax1.bar(years, counts, color=ACCENT_SOFT)
+
+                # --- Title and labels styling ---
+                ax1.set_title("Issues per Year", color="#111111", fontsize=14, fontweight="bold", pad=10)
+                ax1.set_xlabel("Year", color="#111111", fontsize=11, fontweight="bold")
+                ax1.set_ylabel("Issues", color="#111111", fontsize=11, fontweight="bold")
+
+                # Subtle dotted grid, clean axes
+                ax1.grid(axis="y", color=GRID_GREY, linestyle="--", linewidth=0.7, alpha=0.9)
+                ax1.spines["top"].set_visible(False)
+                ax1.spines["right"].set_visible(False)
+
+                fig1.tight_layout()
+                st.pyplot(fig1, clear_figure=True)
+            else:
+                st.info("No year information available.")
+
+
+        with col2:
+            top_kw = stats["top_keywords"]
+            if top_kw:
+                labels = [k for k, _ in top_kw][::-1]
+                values = [v for _, v in top_kw][::-1]
+
+                fig2, ax2 = plt.subplots()
+                # Flat Berliner red bars
+                ax2.barh(labels, values, color=ACCENT_SOFT)
+
+                # --- Title and labels styling ---
+                ax2.set_title("Top Keywords (titles + summaries)", color="#111111", fontsize=14, fontweight="bold", pad=10)
+                ax2.set_xlabel("Frequency", color="#111111", fontsize=11, fontweight="bold")
+                ax2.set_ylabel("Keyword", color="#111111", fontsize=11, fontweight="bold")
+
+                # Subtle dotted grid, clean axes
+                ax2.grid(axis="x", color=GRID_GREY, linestyle="--", linewidth=0.7, alpha=0.9)
+                ax2.spines["top"].set_visible(False)
+                ax2.spines["right"].set_visible(False)
+
+                fig2.tight_layout()
+                st.pyplot(fig2, clear_figure=True)
+            else:
+                st.info("No keywords extracted yet.")
+
