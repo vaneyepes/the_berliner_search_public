@@ -578,6 +578,7 @@ with tab_dash:
 
 
         # --- Charts side by side ---
+         # ---Bar charts ---
         col1, col2 = st.columns(2)
 
         with col1:
@@ -629,3 +630,113 @@ with tab_dash:
             else:
                 st.info("No keywords extracted yet.")
 
+          # --- Add divider before bar charts ---
+        st.divider()
+
+            # =========================================================
+        # Second row of charts (two columns)
+        #  - Left: Distribution of Article Lengths (word count)
+        #  - Right: Articles per Section (from section_title or heuristics)
+        # =========================================================
+        col3, col4 = st.columns(2)
+
+        # We reuse enriched metadata to compute both charts
+        _meta = load_enriched_meta(str(DEFAULT_ENRICHED_META))
+
+        # ---------- Left: Distribution of Article Lengths (aggregated by article) ----------
+        with col3:
+            from collections import defaultdict
+
+            # Aggregate chunk lengths by article (issue_id + title)
+            article_lengths = defaultdict(int)
+            for v in _meta.values():
+                txt = (v.get("chunk_text") or "").strip()
+                if not txt:
+                    continue
+                issue = v.get("issue_id", "unknown")
+                title = (v.get("title") or "").strip()
+                key = f"{issue}_{title}"
+                article_lengths[key] += len(txt.split())
+
+            lengths = list(article_lengths.values())
+
+            if lengths:
+                # Histogram bins tuned for typical article sizes
+                bins = list(range(0, 5001, 250))  # 0–5000 words, 250-word steps
+                fig_len, ax_len = plt.subplots()
+                ax_len.hist(lengths, bins=bins, color=ACCENT_SOFT)
+
+                ax_len.set_title("Distribution of Article Lengths", color="#111111",
+                                fontsize=14, fontweight="bold", pad=10)
+                ax_len.set_xlabel("Word count per article", color="#111111",
+                                fontsize=11, fontweight="bold")
+                ax_len.set_ylabel("Number of articles", color="#111111",
+                                fontsize=11, fontweight="bold")
+
+                ax_len.grid(axis="y", color=GRID_GREY, linestyle="--",
+                            linewidth=0.7, alpha=0.9)
+                ax_len.spines["top"].set_visible(False)
+                ax_len.spines["right"].set_visible(False)
+
+                fig_len.tight_layout()
+                st.pyplot(fig_len, clear_figure=True)
+            else:
+                st.info("No article text available to compute lengths.")
+
+
+        # ---------- Right: Articles per Section / Topic ----------
+        with col4:
+            from collections import Counter
+            import re
+
+            # Prefer an explicit section_title if present
+            sections = []
+            for v in _meta.values():
+                sec = (v.get("section_title") or "").strip().lower()
+                if sec:
+                    sections.append(sec)
+                else:
+                    # Heuristic fallback: infer a broad section from the title keywords
+                    title = (v.get("title") or "").lower()
+                    inferred = None
+                    if re.search(r"\b(culture|kultur|art|film|music|theater|festival)\b", title):
+                        inferred = "culture"
+                    elif re.search(r"\b(politic|politik|government|senate|policy|election)\b", title):
+                        inferred = "politics"
+                    elif re.search(r"\b(city|berlin|neighborhood|district|kiez|transport|housing)\b", title):
+                        inferred = "city"
+                    elif re.search(r"\b(economy|business|startup|jobs|price|inflation)\b", title):
+                        inferred = "economy"
+                    elif re.search(r"\b(sport|sports|football|soccer|hertha|union)\b", title):
+                        inferred = "sport"
+                    elif re.search(r"\b(opinion|comment|editorial|column)\b", title):
+                        inferred = "opinion"
+                    if inferred:
+                        sections.append(inferred)
+
+            if sections:
+                from collections import Counter
+                counts = Counter(sections)
+                top_sections = counts.most_common(10)
+
+                labels = [k for k, _ in top_sections][::-1]
+                values = [v for _, v in top_sections][::-1]
+
+                fig_sec, ax_sec = plt.subplots()
+                # Flat soft-red bars (no outline)
+                ax_sec.barh(labels, values, color=ACCENT_SOFT)
+
+                # Berliner-styled titles/labels
+                ax_sec.set_title("Articles per Section", color="#111111",
+                                fontsize=14, fontweight="bold", pad=10)
+                ax_sec.set_xlabel("Number of articles", color="#111111", fontsize=11, fontweight="bold")
+                ax_sec.set_ylabel("Section", color="#111111", fontsize=11, fontweight="bold")
+
+                ax_sec.grid(axis="x", color=GRID_GREY, linestyle="--", linewidth=0.7, alpha=0.9)
+                ax_sec.spines["top"].set_visible(False)
+                ax_sec.spines["right"].set_visible(False)
+
+                fig_sec.tight_layout()
+                st.pyplot(fig_sec, clear_figure=True)
+            else:
+                st.info("No section information found (explicit or inferred).")
