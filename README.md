@@ -66,6 +66,22 @@ Convert a static multi-year PDF archive into a **searchable dataset** combining:
 
 ---
 
+## 🖼️ UI Screenshots
+
+### Search Interface
+
+![The Berliner Search – main screen](assets/1search.png)
+
+### Search Results with Summaries
+
+![Search results with article summaries](assets/2searchResults.png)
+
+### Dashboard The Berliner Archive
+
+![Stats and visualization of the data](assets/3dashboard.png)
+
+---
+
 ## 📅 Project Status (2025)
 
 The integrated semantic search model in the internal system is:
@@ -219,22 +235,6 @@ python -m berliner.cli search "example query"
 ```
 
 (The exact CLI commands depend on your chosen workflow and are not fully documented here.)
-
----
-
-## 🖼️ UI Screenshots
-
-### Search Interface
-
-![The Berliner Search – main screen](assets/1search.png)
-
-### Search Results with Summaries
-
-![Search results with article summaries](assets/2searchResults.png)
-
-### Dashboard The Berliner Archive
-
-![Stats and visualization of the data](assets/3dashboard.png)
 
 ---
 
