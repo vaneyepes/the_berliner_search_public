@@ -1,43 +1,22 @@
+# Local env / build
 .venv/
 __pycache__/
-*.pyc
-data/
-.env
-
-# --- OS & Editor ---
-.DS_Store
-.vscode/
-.idea/
-
-# --- Model & index artifacts ---
-*.faiss
-*.npy
-*.npz
-*.pkl
-*.pt
-*.bin
-faiss.index
-
-# --- Logs & outputs ---
-*.log
-logs/
-runs/
-outputs/
-
-# --- Cached or temporary data ---
-tmp/
-*.tmp
-*.bak
-
-# --- Evaluation or testing ---
-eval/
-notebooks/
-
-# --- Configs ---
-config.yaml
-!config_template.yaml  # keep a safe example
-
-# --- Dependency and build outputs ---
-dist/
-build/
 *.egg-info/
+*.pyc
+
+# Private config
+config.yaml
+
+# Data & indexes
+data/
+*.pdf
+*.jsonl
+*.json
+*.csv
+*.faiss
+*.index
+
+# Local tools / misc
+.streamlit/
+demoBerlinerSearch.mov
+.DS_Store
