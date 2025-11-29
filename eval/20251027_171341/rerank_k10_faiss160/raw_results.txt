@@ -1,0 +1,72 @@
+# QUERY: Berlin airport delays
+01  score=-5.5147  issue=TB_2024_12  chunk=TB_2024_12#c_0059  pages=[91, 91]  berlin-a-la-carte.com instagram: @berlin.a.la.carte 0049 176 28 26 67 64 Pariser Platz. Starts
+02  score=-6.2570  issue=TB_2024_12  chunk=TB_2024_12#c_0017  pages=[33, 35]  Berlin is now rife with people who see its commercial potential. the
+03  score=-6.2648  issue=TB_2024_06  chunk=TB_2024_06#c_0060  pages=[90, 92]  Berlin Global in 60 Minutes GUIDED TOUR Have an hour to spare?
+04  score=-6.2648  issue=TB_232  chunk=TB_232#c_0060  pages=[90, 92]  Berlin Global in 60 Minutes GUIDED TOUR Have an hour to spare?
+05  score=-6.3188  issue=TB_2024_11  chunk=TB_2024_11#c_0061  pages=[92, 93]  berlin-a-la-carte.com instagram: @berlin.a-la-carte.com instagram: @berlin.a-la-carte 0049 176 28 26 67 64 of
+06  score=-6.5768  issue=TB_2024_11  chunk=TB_2024_11#c_0059  pages=[91, 92]  berlin-a-la-carte.com instagram: @berlin.a.la.carte 0049 176 28 26 67 64 GUIDED TOUR Discover
+07  score=-6.5768  issue=TB_2024_10  chunk=TB_2024_10#c_0067  pages=[93, 94]  berlin-a-la-carte.com instagram: @berlin.a.la.carte 0049 176 28 26 67 64 GUIDED TOUR Discover
+08  score=-6.7027  issue=TB_2024_10  chunk=TB_2024_10#c_0068  pages=[94, 96]  Berlin has been a queer hub for more than a century. the
+09  score=-6.7240  issue=TB_2024_10  chunk=TB_2024_10#c_0041  pages=[65, 66]  annual calendar 2025 www.tipberlinmediagroup.de www.tip-berlin.de | www.the-berliner.com 2025 Anzeigenabteilung Tel. +49(0)30 233
+10  score=-6.9205  issue=TB_2025_09  chunk=TB_2025_09#c_0001  pages=[4, 5]  the Berliner Awards The Berliner Awards 2025 2025 2025 In November, we
+
+# QUERY: BER flughafen verspätung sicherheitskontrolle
+01  score=-8.0170  issue=TB_2025_05  chunk=TB_2025_05#c_0002  pages=[6, 10]  the BER airport was mired in corruption, arrived nine years late and
+02  score=-10.5385  issue=TB_2024_10  chunk=TB_2024_10#c_0056  pages=[84, 86]  a book found zu verschenken is the city’s gift to you. a
+03  score=-10.7456  issue=TB_2024_12  chunk=TB_2024_12#c_0047  pages=[76, 77]  he was artistic director for almost three decades and still serves as
+04  score=-10.7932  issue=TB_2025_06  chunk=TB_2025_06#c_0016  pages=[32, 33]  flussbad eV, a group fighting to bring public bathing back to the
+05  score=-11.0484  issue=TB_2025_02  chunk=TB_2025_02#c_0012  pages=[24, 26]  berufsverband-sexarbeit.de TRANS*SEXWORKS is a peer-led support network for trans, inter and non-binary
+06  score=-11.1516  issue=TB_2025_08  chunk=TB_2025_08#c_0023  pages=[40, 42]  n an expedition in Svalbard, a Norwegian archipelago in the Arctic Ocean,
+07  score=-11.1529  issue=TB_2025_06  chunk=TB_2025_06#c_0017  pages=[33, 34]  flussbad partnered with KWB to generate real-time estimates of water quality conditions
+08  score=-11.1742  issue=TB_2025_08  chunk=TB_2025_08#c_0035  pages=[58, 59]  Anzeigenschluss: Montag, 8 Werktage vor Erscheinungstermin DEZEMBER JANUAR FEBRUAR MRZ APRIL MAI
+09  score=-11.1820  issue=TB_2025_09  chunk=TB_2025_09#c_0050  pages=[71, 73]  13 14 15 16 17 18 19 20 21 22 23 24
+10  score=-11.1840  issue=TB_2024_03  chunk=TB_2024_03#c_0018  pages=[31, 36]  IMAGO / Sabine Gudath IN CASE YOU The Berl IMAGO / Olaf
+
+# QUERY: Neukölln gentrification rent eviction
+01  score=-5.5504  issue=TB_2024_10  chunk=TB_2024_10#c_0022  pages=[39, 41]  all of the three Bierbaums in Neukölln will provide you with a
+02  score=-6.8137  issue=TB_2024_10  chunk=TB_2024_10#c_0017  pages=[32, 34]  the collective opened a darkroom in early 2023 in Oyoun, a Neukölln
+03  score=-7.2371  issue=TB_2025_06  chunk=TB_2025_06#c_0054  pages=[87, 88]  both tipsy Bear and Silver Future in Neukölln shared grim updates on
+04  score=-8.5518  issue=TB_2024_05  chunk=TB_2024_05#c_0068  pages=[94, 95]  ART Neukölln's 25th annual (free!) arts and culture festival celebrates around 300
+05  score=-10.8876  issue=TB_2025_06  chunk=TB_2025_06#c_0022  pages=[42, 43]  the current landlords have issued notice for the site to be vacated.
+06  score=-11.1604  issue=TB_2024_10  chunk=TB_2024_10#c_0026  pages=[44, 45]  rents across the cooperative’s roughly 7,000 flats rent for a kalt average
+07  score=-11.1735  issue=TB_2024_04  chunk=TB_2024_04#c_0033  pages=[51, 53]  the big goal is to make a big statement to the Senate
+08  score=-11.1735  issue=TB_230  chunk=TB_230#c_0033  pages=[51, 53]  the big goal is to make a big statement to the Senate
+09  score=-11.2303  issue=TB_2025_05  chunk=TB_2025_05#c_0020  pages=[41, 43]  what is the biggest change in the city that you’ve seen, and
+10  score=-11.2357  issue=TB_2025_08  chunk=TB_2025_08#c_0002  pages=[6, 7]  a reddit commenter swapped suggestions for some of the city's dirtiest spots
+
+# QUERY: Mietendeckel Neukölln Räumung
+01  score=-6.4281  issue=TB_2024_10  chunk=TB_2024_10#c_0022  pages=[39, 41]  all of the three Bierbaums in Neukölln will provide you with a
+02  score=-6.4892  issue=TB_2024_05  chunk=TB_2024_05#c_0068  pages=[94, 95]  ART Neukölln's 25th annual (free!) arts and culture festival celebrates around 300
+03  score=-6.8697  issue=TB_2024_10  chunk=TB_2024_10#c_0017  pages=[32, 34]  the collective opened a darkroom in early 2023 in Oyoun, a Neukölln
+04  score=-6.9283  issue=TB_2025_06  chunk=TB_2025_06#c_0054  pages=[87, 88]  both tipsy Bear and Silver Future in Neukölln shared grim updates on
+05  score=-9.3477  issue=TB_2024_12  chunk=TB_2024_12#c_0047  pages=[76, 77]  he was artistic director for almost three decades and still serves as
+06  score=-11.0024  issue=TB_2024_05  chunk=TB_2024_05#c_0064  pages=[89, 91]  Irmgard Keun is a relatively unknown German writer from the 1930s. the
+07  score=-11.0987  issue=TB_2025_05  chunk=TB_2025_05#c_0039  pages=[69, 71]  Elfi Mikesch is an Austrian-German filmmaker, photographer and cinematographer. she has worked
+08  score=-11.1043  issue=TB_2024_05  chunk=TB_2024_05#c_0021  pages=[36, 37]  NochMall is a secondhand department store associated with the Berliner Stadtreinigung. it
+09  score=-11.2659  issue=TB_2025_08  chunk=TB_2025_08#c_0035  pages=[58, 59]  Anzeigenschluss: Montag, 8 Werktage vor Erscheinungstermin DEZEMBER JANUAR FEBRUAR MRZ APRIL MAI
+10  score=-11.2677  issue=TB_2025_05  chunk=TB_2025_05#c_0017  pages=[40, 43]  Briesetal is a 12-kilometre hike along the Briese river, past romantic archways
+
+# QUERY: Tegel closure history
+01  score=-10.8103  issue=TB_233  chunk=TB_233#c_0017  pages=[29, 30]  despite a 72-year history, it was only over the last decade that
+02  score=-10.8103  issue=TB_2024_08  chunk=TB_2024_08#c_0017  pages=[29, 30]  despite a 72-year history, it was only over the last decade that
+03  score=-11.0278  issue=TB_2025_05  chunk=TB_2025_05#c_0052  pages=[84, 85]  he was involved in one of the first gender affirmation surgeries in
+04  score=-11.1330  issue=TB_2024_10  chunk=TB_2024_10#c_0018  pages=[34, 34]  the sudden loss of the venue disrupted many collectives. the group hosted
+05  score=-11.1811  issue=TB_2024_11  chunk=TB_2024_11#c_0026  pages=[45, 46]  clubs closing down feels like a serious thing every time it’s come
+06  score=-11.1896  issue=TB_2025_03  chunk=TB_2025_03#c_0015  pages=[29, 35]  a date on one indicates that the figure was made in 1990.
+07  score=-11.1954  issue=TB_2024_11  chunk=TB_2024_11#c_0001  pages=[4, 7]  the city was built on culture and was built for Joseph Goebbels
+08  score=-11.2230  issue=TB_2024_11  chunk=TB_2024_11#c_0024  pages=[43, 44]  46% of clubs said they were thinking about closing in the next
+09  score=-11.2306  issue=TB_2024_10  chunk=TB_2024_10#c_0017  pages=[32, 34]  the collective opened a darkroom in early 2023 in Oyoun, a Neukölln
+10  score=-11.2317  issue=TB_2024_11  chunk=TB_2024_11#c_0025  pages=[43, 45]  46% of clubs surveyed are thinking about closing in the next 12
+
+# QUERY: Schönefeld to BER transition delays
+01  score=-6.1510  issue=TB_2025_05  chunk=TB_2025_05#c_0002  pages=[6, 10]  the BER airport was mired in corruption, arrived nine years late and
+02  score=-11.1654  issue=TB_2025_05  chunk=TB_2025_05#c_0052  pages=[84, 85]  he was involved in one of the first gender affirmation surgeries in
+03  score=-11.2345  issue=TB_2024_12  chunk=TB_2024_12#c_0047  pages=[76, 77]  he was artistic director for almost three decades and still serves as
+04  score=-11.2691  issue=TB_2025_02  chunk=TB_2025_02#c_0012  pages=[24, 26]  berufsverband-sexarbeit.de TRANS*SEXWORKS is a peer-led support network for trans, inter and non-binary
+05  score=-11.2760  issue=TB_2024_11  chunk=TB_2024_11#c_0017  pages=[34, 36]  the pair are enthusiastic as they discuss their upcoming plans at art
+06  score=-11.3188  issue=TB_2025_02  chunk=TB_2025_02#c_0003  pages=[7, 10]  he wants to scrap the EU's Digital Services Act, which compels social
+07  score=-11.3397  issue=TB_2024_04  chunk=TB_2024_04#c_0036  pages=[57, 58]  the state-owned “sustainable” development agency, Grün Berlin, are spearheading the rejuvenation. they
+08  score=-11.3397  issue=TB_230  chunk=TB_230#c_0036  pages=[57, 58]  the state-owned “sustainable” development agency, Grün Berlin, are spearheading the rejuvenation. they
+09  score=-11.3399  issue=TB_2024_09  chunk=TB_2024_09#c_0058  pages=[91, 93]  the route passes numerous landmarks, such as Schloss Charlottenburg and the Siegessäule.
+10  score=-11.3450  issue=TB_2025_06  chunk=TB_2025_06#c_0022  pages=[42, 43]  the current landlords have issued notice for the site to be vacated.
+
